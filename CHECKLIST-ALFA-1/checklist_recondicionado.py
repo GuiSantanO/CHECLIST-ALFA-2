@@ -137,6 +137,9 @@ class MenuPrincipal(ctk.CTkFrame):
         
         self.create_menu_button("⚠️  EXPORTAR DANOS", "#e67e22", 
                               exportar_danos_ui)
+        
+        self.create_menu_button("📄  EXPORTAR COMPRA (PDF)", "#8e44ad", 
+                              exportar_compra_pdf_ui)
 
         # Rodapé
 
@@ -784,6 +787,122 @@ def exportar_danos_ui():
             df_export.to_excel(save_path, index=False)
             formatar_excel_danos(save_path)
             os.startfile(save_path)
+    except Exception as e:
+        messagebox.showerror("Erro", f"Erro ao exportar: {str(e)}")
+
+def formatar_excel_compra_pdf(filepath):
+    """Formata o Excel temporário para ficar apresentável no PDF"""
+    try:
+        wb = load_workbook(filepath)
+        ws = wb.active
+        
+        # Estilos
+        header_fill = PatternFill(start_color="8E44AD", end_color="8E44AD", fill_type="solid") # Roxo
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        
+        thin_border = Border(
+            left=Side(style='thin', color='000000'),
+            right=Side(style='thin', color='000000'),
+            top=Side(style='thin', color='000000'),
+            bottom=Side(style='thin', color='000000')
+        )
+        
+        left_alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_alignment
+            cell.border = thin_border
+            
+        ws.row_dimensions[1].height = 25
+        
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+            for cell in row:
+                cell.border = thin_border
+                cell.alignment = left_alignment
+                if cell.column_letter == 'B': # Serial
+                    cell.number_format = '@'
+                if cell.column_letter == 'G': # Observações
+                    cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+        
+        # Ajustar larguras
+        ws.column_dimensions['A'].width = 25 # Modelo
+        ws.column_dimensions['B'].width = 15 # Serial
+        ws.column_dimensions['C'].width = 20 # CPU
+        ws.column_dimensions['D'].width = 12 # RAM
+        ws.column_dimensions['E'].width = 15 # Disco
+        ws.column_dimensions['F'].width = 15 # GPU
+        ws.column_dimensions['G'].width = 45 # Observações
+        
+        wb.save(filepath)
+        return True
+    except Exception as e:
+        print(f"Erro formatando PDF Excel: {e}")
+        return False
+
+def exportar_compra_pdf_ui():
+    if not os.path.exists(EXCEL_FILE):
+        messagebox.showinfo("Aviso", "Ainda não existem registos para exportar.")
+        return
+
+    dialog = ctk.CTkInputDialog(text="Digite o Nº de Compra para exportar em PDF:", title="Exportar Compra")
+    compra_num = dialog.get_input()
+    
+    if not compra_num: return
+    
+    try:
+        import win32com.client
+        df = pd.read_excel(EXCEL_FILE)
+        df['Nº Compra'] = df['Nº Compra'].astype(str)
+        
+        filtro = df['Nº Compra'] == str(compra_num)
+        
+        colunas_necessarias = ['Modelo', 'Serial', 'CPU', 'RAM', 'Disco', 'GPU', 'Notas']
+        
+        df_export = df[filtro].reindex(columns=colunas_necessarias)
+        df_export.rename(columns={'Notas': 'Observações'}, inplace=True)
+        
+        if df_export.empty:
+            messagebox.showinfo("Vazio", "Nenhum registo encontrado para esta compra.")
+            return
+
+        default_pdf = f"Compra_{compra_num}.pdf"
+        save_path_pdf = filedialog.asksaveasfilename(defaultextension=".pdf", initialfile=default_pdf, filetypes=[("Documentos PDF", "*.pdf")])
+        if not save_path_pdf: return
+        
+        temp_excel = os.path.join(DATA_DIR, f"temp_compra_{compra_num}.xlsx")
+        
+        df_export.to_excel(temp_excel, index=False)
+        formatar_excel_compra_pdf(temp_excel)
+        
+        try:
+            excel = win32com.client.DispatchEx("Excel.Application")
+            excel.Visible = False
+            excel.DisplayAlerts = False
+            
+            wb = excel.Workbooks.Open(os.path.abspath(temp_excel))
+            
+            ws = wb.ActiveSheet
+            ws.PageSetup.Orientation = 2 # xlLandscape
+            ws.PageSetup.Zoom = False
+            ws.PageSetup.FitToPagesWide = 1
+            ws.PageSetup.FitToPagesTall = False
+            
+            wb.ExportAsFixedFormat(0, os.path.abspath(save_path_pdf))
+            wb.Close(False)
+            excel.Quit()
+            
+            if os.path.exists(temp_excel):
+                try: os.remove(temp_excel)
+                except: pass
+                
+            os.startfile(save_path_pdf)
+        except Exception as com_err:
+            messagebox.showerror("Erro PDF", f"Erro a comunicar com o Excel para gerar PDF: {str(com_err)}\n\nO ficheiro XLSX com formato foi gerado em {DATA_DIR}.")
+            os.startfile(DATA_DIR)
+            
     except Exception as e:
         messagebox.showerror("Erro", f"Erro ao exportar: {str(e)}")
 
