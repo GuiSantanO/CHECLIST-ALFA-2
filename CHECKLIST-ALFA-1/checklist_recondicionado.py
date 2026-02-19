@@ -233,7 +233,7 @@ class ChecklistFrame(ctk.CTkFrame):
         # --- SEÇÃO 4: TESTES ---
         self.add_section_header("4. Checklist de Testes")
         self.test_vars = {}
-        tests = ["Teclado", "Ecrã", "Touch Screen", "Wifi", "LAN", "Portas USB", "Webcam", "Microfone", "Saídas Vídeo"]
+        tests = ["Teclado", "Ecrã", "Touch Screen", "Wifi", "LAN", "Portas USB", "Webcam", "Microfone", "Colunas", "Saídas Vídeo"]
         
         self.tests_frame = ctk.CTkFrame(self.scroll, fg_color=COLOR_CARD)
         self.tests_frame.pack(fill="x", pady=(0, 20))
@@ -316,6 +316,7 @@ class ChecklistFrame(ctk.CTkFrame):
             "Teclado": "https://en.key-test.ru/",
             "Webcam": "https://pt.webcamtests.com/",
             "Microfone": "https://pt.mictests.com/",
+            "Colunas": "https://pt.mictests.com/sound-test/",
             "Ecrã": "https://deadpixeltest.org/",
             "Touch Screen": "https://testmyscreen.com/"
         }
@@ -353,6 +354,7 @@ class ChecklistFrame(ctk.CTkFrame):
             "LAN": testes.get("LAN"),
             "Webcam": testes.get("Webcam"),
             "Microfone": testes.get("Microfone"),
+            "Colunas": testes.get("Colunas"),
             "USB": testes.get("Portas USB"), 
             "Portas de Vídeo": testes.get("Saídas Vídeo")
         }
@@ -550,6 +552,7 @@ def guardar_em_excel(usuario, compra_num, sys_info, testes, danos, ram_details=N
             "LAN": "✓" if testes.get("LAN") else "✗",
             "Webcam": "✓" if testes.get("Webcam") else "✗",
             "Microfone": "✓" if testes.get("Microfone") else "✗",
+            "Colunas": "✓" if testes.get("Colunas") else "✗",
             "USB": "✓" if testes.get("USB") else "✗",
             "Portas de Vídeo": "✓" if testes.get("Portas de Vídeo") else "✗",
             "Notas": danos.strip() if danos.strip() else "Sem observações"
@@ -565,7 +568,7 @@ def guardar_em_excel(usuario, compra_num, sys_info, testes, danos, ram_details=N
         cols_order = [
             "Data", "Técnico", "Nº Compra", "Modelo", "Serial", "CPU", "RAM", "Tipo RAM", "Config RAM", 
             "Disco", "GPU",
-            "Teclado", "Ecrã", "Touch Screen", "Wifi", "LAN", "Webcam", "Microfone", "USB", 
+            "Teclado", "Ecrã", "Touch Screen", "Wifi", "LAN", "Webcam", "Microfone", "Colunas", "USB", 
             "Portas de Vídeo", "Notas"
         ]
         
@@ -663,9 +666,10 @@ def formatar_excel(filepath):
             'P': 8,   # LAN
             'Q': 10,  # Webcam
             'R': 12,  # Microfone
-            'S': 8,   # USB
-            'T': 14,  # Portas de Vídeo
-            'U': 30   # Notas
+            'S': 10,  # Colunas
+            'T': 8,   # USB
+            'U': 14,  # Portas de Vídeo
+            'V': 30   # Notas
         }
         
         for col_letter, width in column_widths.items():
@@ -805,7 +809,7 @@ def abrir_registos_excel():
                 cols = [
                     "Data", "Técnico", "Nº Compra", "Modelo", "Serial", "CPU", "RAM", "Tipo RAM", "Config RAM", 
                     "Disco", "GPU",
-                    "Teclado", "Ecrã", "Touch Screen", "Wifi", "LAN", "Webcam", "Microfone", "USB", 
+                    "Teclado", "Ecrã", "Touch Screen", "Wifi", "LAN", "Webcam", "Microfone", "Colunas", "USB", 
                     "Portas de Vídeo", "Notas"
                 ]
                 df = pd.DataFrame(columns=cols)
