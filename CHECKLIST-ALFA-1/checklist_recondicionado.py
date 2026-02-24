@@ -234,7 +234,7 @@ class ChecklistFrame(ctk.CTkFrame):
         # --- SEÇÃO 4: TESTES ---
         self.add_section_header("4. Checklist de Testes")
         self.test_vars = {}
-        tests = ["Teclado", "Ecrã", "Touch Screen", "Wifi", "LAN", "Portas USB", "Webcam", "Microfone", "Colunas", "Saídas Vídeo"]
+        tests = ["Teclado", "Ecrã", "Touch Screen", "Wifi", "LAN", "Portas USB", "Webcam", "Microfone", "Colunas", "Saídas Vídeo", "LTE"]
         
         self.tests_frame = ctk.CTkFrame(self.scroll, fg_color=COLOR_CARD)
         self.tests_frame.pack(fill="x", pady=(0, 20))
@@ -253,8 +253,27 @@ class ChecklistFrame(ctk.CTkFrame):
         self.notes_frame.pack(fill="x", pady=(0, 20))
         
         self.text_notes = ctk.CTkTextbox(self.notes_frame, height=100)
-        self.text_notes.pack(fill="x", padx=20, pady=20)
+        self.text_notes.pack(fill="x", padx=20, pady=(20, 10))
         
+        self.quick_notes_frame = ctk.CTkFrame(self.notes_frame, fg_color="transparent")
+        self.quick_notes_frame.pack(fill="x", padx=20, pady=(0, 20))
+        
+        quick_texts = [
+            "pressure marks lcd", "broken", "lcd", "battery", "ko", "dead",
+            "keyboard", "usb", "damaged", "palm rest", "domain locked"
+        ]
+        
+        row, col = 0, 0
+        for text in quick_texts:
+            btn = ctk.CTkButton(self.quick_notes_frame, text=text, width=80,
+                               fg_color=COLOR_INFO, hover_color="#2980b9",
+                               command=lambda t=text: self.add_quick_note(t))
+            btn.grid(row=row, column=col, padx=4, pady=4)
+            col += 1
+            if col > 4: # 5 botões por linha
+                col = 0
+                row += 1
+
         # --- BOTÃO AÇÃO ---
         self.btn_save = ctk.CTkButton(self.scroll, text="GERAR RELATÓRIO E GUARDAR", 
                                      fg_color=COLOR_ACCENT, hover_color="#27ae60",
@@ -262,22 +281,24 @@ class ChecklistFrame(ctk.CTkFrame):
                                      command=self.gerar_relatorio)
         self.btn_save.pack(fill="x", pady=20)
 
+    def add_quick_note(self, text):
+        current_text = self.text_notes.get("1.0", "end-1c").strip()
+        if current_text:
+            self.text_notes.insert("end", f", {text}")
+        else:
+            self.text_notes.insert("end", text)
+
     def open_incognito(self, url):
-        """Abre o link em modo anônimo (Chrome ou Edge)"""
+        """Abre o link no Edge InPrivate em Full Screen"""
         try:
-            # Tenta Chrome Incognito
             if sys.platform == 'win32':
-                subprocess.run(f'start chrome --incognito "{url}"', shell=True, check=True)
+                # Executa o Edge InPrivate e em Full Screen
+                subprocess.run(f'start msedge --inprivate --start-fullscreen "{url}"', shell=True, check=True)
             else:
-                webbrowser.open(url) # Fallback para Linux/Mac por enquanto
-        except:
-            try:
-                # Tenta Edge InPrivate
-                if sys.platform == 'win32':
-                    subprocess.run(f'start msedge --inprivate "{url}"', shell=True, check=True)
-            except:
-                # Fallback padrão
                 webbrowser.open(url)
+        except:
+            # Fallback padrão
+            webbrowser.open(url)
 
     def add_section_header(self, text):
         ctk.CTkLabel(self.scroll, text=text, font=("Roboto Medium", 14), 
@@ -293,7 +314,7 @@ class ChecklistFrame(ctk.CTkFrame):
         info = self.controller.sys_info
         if info:
             self.lbl_model.configure(text=info.get('modelo', 'Desconhecido'))
-            specs = f"S/N: {info.get('serial', 'N/A')}\nCPU: {info.get('cpu', 'N/A')}\nRAM: {info.get('ram', 'N/A')}\nDISCO: {info.get('disk', 'N/A')}\nGPU: {info.get('gpu', 'N/A')}"
+            specs = f"S/N: {info.get('serial', 'N/A')}\nCPU: {info.get('cpu', 'N/A')}\nRAM: {info.get('ram', 'N/A')}\nDISCO: {info.get('disk', 'N/A')}\nGPU: {info.get('gpu', 'N/A')}\nECRÃ: {info.get('resolution', 'N/A')} ({info.get('refresh_rate', 'N/A')})"
             self.lbl_specs.configure(text=specs)
 
     def create_test_item(self, parent, test_name, row, col):
@@ -317,7 +338,7 @@ class ChecklistFrame(ctk.CTkFrame):
             "Teclado": "https://en.key-test.ru/",
             "Webcam": "https://pt.webcamtests.com/",
             "Microfone": "https://pt.mictests.com/",
-            "Colunas": "https://pt.mictests.com/sound-test/",
+            "Colunas": "https://www.xbitlabs.com/pt/teste-de-som/",
             "Ecrã": "https://deadpixeltest.org/",
             "Touch Screen": "https://testmyscreen.com/"
         }
@@ -333,7 +354,18 @@ class ChecklistFrame(ctk.CTkFrame):
         if usuario == "Convidado":
             usuario = self.entry_guest.get() or "Convidado"
             
-        compra_num = self.entry_compra.get()
+        compra_num = self.entry_compra.get().strip()
+        
+        # Validação do Nº Compra
+        if not compra_num:
+            messagebox.showwarning("Aviso", "A Referência de Compra é de preenchimento obrigatório.")
+            return
+            
+        # Verifica se contém algo que não seja alfanumérico ou barra '/'
+        if not compra_num.replace('/', '').replace('\\', '').isalnum():
+            messagebox.showwarning("Aviso", "A Referência de Compra só pode conter letras, números e barras (/).\nCaracteres especiais não são permitidos.")
+            return
+            
         danos = self.text_notes.get("1.0", "end-1c")
         
         # Detalhes RAM
@@ -357,7 +389,8 @@ class ChecklistFrame(ctk.CTkFrame):
             "Microfone": testes.get("Microfone"),
             "Colunas": testes.get("Colunas"),
             "USB": testes.get("Portas USB"), 
-            "Portas de Vídeo": testes.get("Saídas Vídeo")
+            "Portas de Vídeo": testes.get("Saídas Vídeo"),
+            "LTE": testes.get("LTE")
         }
         
         # Chaman lógica de geração (reutilizando função externa refatorada ou movida)
@@ -389,6 +422,23 @@ class RegistosFrame(ctk.CTkFrame):
         # Left Panel (Table) - Fills the rest of the available space
         self.tree_frame = ctk.CTkFrame(self.main_area, fg_color=COLOR_CARD)
         self.tree_frame.pack(side="left", fill="both", expand=True)
+        
+        # Search and Filter Bar
+        self.filter_frame = ctk.CTkFrame(self.tree_frame, fg_color="transparent")
+        self.filter_frame.pack(fill="x", padx=10, pady=(10, 0))
+        
+        self.search_var = ctk.StringVar()
+        self.search_entry = ctk.CTkEntry(self.filter_frame, placeholder_text="Procurar (S/N, Modelo, Nº Compra...)", 
+                                        textvariable=self.search_var, width=300)
+        self.search_entry.pack(side="left", padx=(0, 10))
+        self.search_var.trace_add("write", lambda *args: self.apply_filters())
+        
+        self.sort_var = ctk.StringVar(value="Data")
+        self.sort_combo = ctk.CTkComboBox(self.filter_frame, values=["Data", "Ordem Alfabética (Modelo)"], 
+                                         variable=self.sort_var, command=lambda e: self.apply_filters(), width=200)
+        self.sort_combo.pack(side="right")
+        
+        ctk.CTkLabel(self.filter_frame, text="Ordenar por:").pack(side="right", padx=(0, 10))
         
         # Style
         style = ttk.Style()
@@ -433,8 +483,8 @@ class RegistosFrame(ctk.CTkFrame):
                                      command=self.save_edits)
         self.btn_save.pack(pady=15, padx=10, fill="x")
         
-        # Variables
         self.df = None
+        self.filtered_df = None
         self.current_idx = None
         self.editor_widgets = {}
         
@@ -448,28 +498,67 @@ class RegistosFrame(ctk.CTkFrame):
              
         try:
              self.df = pd.read_excel(EXCEL_FILE)
-             
-             # Reset tree
-             for item in self.tree.get_children():
-                 self.tree.delete(item)
-             
-             # Setup columns
-             self.tree["columns"] = list(self.df.columns)
-             self.tree["show"] = "headings"
-             
-             for col in self.df.columns:
-                 self.tree.heading(col, text=col)
-                 width = 150 if col in ["Modelo", "Serial", "Notas", "CPU", "Disco", "GPU"] else 80
-                 self.tree.column(col, width=width, minwidth=50, stretch=False)
-                 
-             # Insert rows
-             for idx, row in self.df.iterrows():
-                 values = ["" if pd.isna(val) else str(val) for val in row]
-                 self.tree.insert("", "end", iid=str(idx), values=values)
-                 
+             self.apply_filters()
              self.create_editor_fields()
         except Exception as e:
              messagebox.showerror("Erro", f"Falha ao ler Excel: {e}")
+
+    def apply_filters(self):
+        if self.df is None or self.df.empty: return
+        
+        query = self.search_var.get().strip().lower()
+        sort_by = self.sort_var.get()
+        
+        # Copiar dataframe original
+        self.filtered_df = self.df.copy()
+        
+        # Converter colunas necessárias para string para evitar erros de busca
+        for col in ['Modelo', 'Serial', 'Nº Compra']:
+             if col in self.filtered_df.columns:
+                 self.filtered_df[col] = self.filtered_df[col].astype(str)
+                 
+        # Aplicar Pesquisa
+        if query:
+            # Procurar em Modelo, Serial, CPU, GPU, Nº Compra
+            mask = self.filtered_df.apply(lambda row: any(query in str(val).lower() for val in row), axis=1)
+            self.filtered_df = self.filtered_df[mask]
+            
+        # Aplicar Ordenação
+        if sort_by == "Data":
+            # Tentar ordenar por data real se possível, senão pelo index inverso (mais recente primeiro se adicionado no fim)
+            try:
+                self.filtered_df['DataRaw'] = pd.to_datetime(self.filtered_df['Data'], format="%d/%m/%Y %H:%M", errors='coerce')
+                self.filtered_df = self.filtered_df.sort_values(by='DataRaw', ascending=False)
+                self.filtered_df = self.filtered_df.drop(columns=['DataRaw'])
+            except:
+                self.filtered_df = self.filtered_df.sort_index(ascending=False)
+        elif sort_by == "Ordem Alfabética (Modelo)":
+            if 'Modelo' in self.filtered_df.columns:
+                self.filtered_df = self.filtered_df.sort_values(by='Modelo', ascending=True)
+
+        self.populate_tree()
+        
+    def populate_tree(self):
+         # Reset tree
+         for item in self.tree.get_children():
+             self.tree.delete(item)
+             
+         if self.filtered_df is None or self.filtered_df.empty:
+             return
+             
+         # Setup columns
+         self.tree["columns"] = list(self.df.columns)
+         self.tree["show"] = "headings"
+         
+         for col in self.df.columns:
+             self.tree.heading(col, text=col)
+             width = 150 if col in ["Modelo", "Serial", "Notas", "CPU", "Disco", "GPU"] else 80
+             self.tree.column(col, width=width, minwidth=50, stretch=False)
+             
+         # Insert rows
+         for idx, row in self.filtered_df.iterrows():
+             values = ["" if pd.isna(val) else str(val) for val in row]
+             self.tree.insert("", "end", iid=str(idx), values=values)
 
     def create_editor_fields(self):
         if self.df is None or self.df.empty: return
@@ -487,7 +576,7 @@ class RegistosFrame(ctk.CTkFrame):
             if col == "Notas":
                 entry = ctk.CTkTextbox(self.editor_scroll, height=80)
                 entry.pack(fill="x", pady=2)
-            elif col in ["Teclado", "Ecrã", "Touch Screen", "Wifi", "LAN", "Webcam", "Microfone", "Colunas", "USB", "Portas de Vídeo"]:
+            elif col in ["Teclado", "Ecrã", "Touch Screen", "Wifi", "LAN", "Webcam", "Microfone", "Colunas", "USB", "Portas de Vídeo", "LTE"]:
                 entry = ctk.CTkComboBox(self.editor_scroll, values=["✓", "✗", "N/A"])
                 entry.pack(fill="x", pady=2)
             else:
@@ -641,13 +730,27 @@ def get_system_info():
             info['disk'] = " + ".join(disks)
         except: info['disk'] = "N/A"
         
-        # 6. GPU
+        # 6. GPU & Resolution Info
         gpus = []
         try:
+            res_width = ""
+            res_height = ""
+            refresh = ""
+            
             for gpu in c.Win32_VideoController():
                 gpus.append(gpu.Name)
-            info['gpu'] = " | ".join(gpus)
-        except: info['gpu'] = "N/A"
+                if gpu.CurrentHorizontalResolution and gpu.CurrentVerticalResolution:
+                     res_width = gpu.CurrentHorizontalResolution
+                     res_height = gpu.CurrentVerticalResolution
+                     refresh = gpu.CurrentRefreshRate or "60" # Default se não detetar
+                     
+            info['gpu'] = " | ".join(gpus) if gpus else "N/A"
+            info['resolution'] = f"{res_width}x{res_height}" if res_width else "N/A"
+            info['refresh_rate'] = f"{refresh} Hz" if refresh else "N/A"
+        except Exception as e:
+            info['gpu'] = "N/A"
+            info['resolution'] = "N/A"
+            info['refresh_rate'] = "N/A"
         
     except Exception as e:
         info['error'] = str(e)
@@ -703,6 +806,8 @@ def gerar_relatorio_logic(sys_info, usuario, compra_num, testes, danos, ram_deta
                 <tr><th>Memória RAM</th><td>{sys_info.get('ram', 'N/A')} <span style="font-size: 0.9em; color: #666;">({ram_details.get('type', '')} - {ram_details.get('config', '')})</span></td></tr>
                 <tr><th>Armazenamento</th><td>{sys_info.get('disk', 'N/A')}</td></tr>
                 <tr><th>Gráfica</th><td>{sys_info.get('gpu', 'N/A')}</td></tr>
+                <tr><th>Ecrã (Resolução)</th><td>{sys_info.get('resolution', 'N/A')}</td></tr>
+                <tr><th>Ecrã (Taxa Atualização)</th><td>{sys_info.get('refresh_rate', 'N/A')}</td></tr>
             </table>
 
             <h2>✅ Resultados dos Testes</h2>
@@ -761,6 +866,8 @@ def guardar_em_excel(usuario, compra_num, sys_info, testes, danos, ram_details=N
             "Config RAM": ram_details.get('config', '') if ram_details else "",
             "Disco": sys_info.get('disk', 'N/A'),
             "GPU": sys_info.get('gpu', 'N/A'),
+            "Resolução": sys_info.get('resolution', 'N/A'),
+            "Refresh": sys_info.get('refresh_rate', 'N/A'),
             "Teclado": "✓" if testes.get("Teclado") else "✗",
             "Ecrã": "✓" if testes.get("Ecrã") else "✗",
             "Touch Screen": "✓" if testes.get("Touch Screen") else "✗",
@@ -771,6 +878,7 @@ def guardar_em_excel(usuario, compra_num, sys_info, testes, danos, ram_details=N
             "Colunas": "✓" if testes.get("Colunas") else "✗",
             "USB": "✓" if testes.get("USB") else "✗",
             "Portas de Vídeo": "✓" if testes.get("Portas de Vídeo") else "✗",
+            "LTE": "✓" if testes.get("LTE") else "✗",
             "Notas": danos.strip() if danos.strip() else "Sem observações"
         }
         
@@ -783,9 +891,9 @@ def guardar_em_excel(usuario, compra_num, sys_info, testes, danos, ram_details=N
         # Forçar ordem das colunas
         cols_order = [
             "Data", "Técnico", "Nº Compra", "Modelo", "Serial", "CPU", "RAM", "Tipo RAM", "Config RAM", 
-            "Disco", "GPU",
+            "Disco", "GPU", "Resolução", "Refresh",
             "Teclado", "Ecrã", "Touch Screen", "Wifi", "LAN", "Webcam", "Microfone", "Colunas", "USB", 
-            "Portas de Vídeo", "Notas"
+            "Portas de Vídeo", "LTE", "Notas"
         ]
         
         # Garantir que todas as colunas existem (se o excel antigo não tiver alguma)
@@ -847,7 +955,7 @@ def formatar_excel(filepath):
                 cell.border = thin_border
                 
                 # Alinhar colunas de testes (marcas ✓ e ✗)
-                if col_idx > 11:  # Colunas dos testes (ajustado para novas colunas)
+                if col_idx > 13:  # Colunas dos testes (ajustado para novas colunas e refresh/res)
                     cell.alignment = center_alignment
                     cell.font = Font(size=12, bold=True)
                     
@@ -875,17 +983,20 @@ def formatar_excel(filepath):
             'I': 15,  # Config RAM
             'J': 20,  # Disco
             'K': 20,  # GPU
-            'L': 10,  # Teclado
-            'M': 8,   # Ecrã
-            'N': 12,  # Touch
-            'O': 8,   # Wifi
-            'P': 8,   # LAN
-            'Q': 10,  # Webcam
-            'R': 12,  # Microfone
-            'S': 10,  # Colunas
-            'T': 8,   # USB
-            'U': 14,  # Portas de Vídeo
-            'V': 30   # Notas
+            'L': 12,  # Resolução
+            'M': 10,  # Refresh
+            'N': 10,  # Teclado
+            'O': 8,   # Ecrã
+            'P': 12,  # Touch
+            'Q': 8,   # Wifi
+            'R': 8,   # LAN
+            'S': 10,  # Webcam
+            'T': 12,  # Microfone
+            'U': 10,  # Colunas
+            'V': 8,   # USB
+            'W': 14,  # Portas de Vídeo
+            'X': 8,   # LTE
+            'Y': 30   # Notas
         }
         
         for col_letter, width in column_widths.items():
@@ -1037,17 +1148,19 @@ def formatar_excel_compra_pdf(filepath):
                 cell.alignment = left_alignment
                 if cell.column_letter == 'B': # Serial
                     cell.number_format = '@'
-                if cell.column_letter == 'G': # Observações
+                if cell.column_letter == 'I': # Observações
                     cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
         
         # Ajustar larguras
-        ws.column_dimensions['A'].width = 25 # Modelo
+        ws.column_dimensions['A'].width = 20 # Modelo
         ws.column_dimensions['B'].width = 15 # Serial
         ws.column_dimensions['C'].width = 20 # CPU
-        ws.column_dimensions['D'].width = 12 # RAM
+        ws.column_dimensions['D'].width = 10 # RAM
         ws.column_dimensions['E'].width = 15 # Disco
         ws.column_dimensions['F'].width = 15 # GPU
-        ws.column_dimensions['G'].width = 45 # Observações
+        ws.column_dimensions['G'].width = 12 # Resolução
+        ws.column_dimensions['H'].width = 8  # Refresh
+        ws.column_dimensions['I'].width = 35 # Observações
         
         wb.save(filepath)
         return True
@@ -1072,7 +1185,7 @@ def exportar_compra_pdf_ui():
         
         filtro = df['Nº Compra'] == str(compra_num)
         
-        colunas_necessarias = ['Modelo', 'Serial', 'CPU', 'RAM', 'Disco', 'GPU', 'Notas']
+        colunas_necessarias = ['Modelo', 'Serial', 'CPU', 'RAM', 'Disco', 'GPU', 'Resolução', 'Refresh', 'Notas']
         
         df_export = df[filtro].reindex(columns=colunas_necessarias)
         df_export.rename(columns={'Notas': 'Observações'}, inplace=True)
