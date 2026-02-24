@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from tkinter import messagebox, filedialog
+from tkinter import messagebox, filedialog, ttk
 import wmi
 import psutil
 import platform
@@ -12,8 +12,6 @@ import threading
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from PIL import Image
-import json
 
 
 # --- CONFIGURAÇÃO DE TEMA ---
@@ -21,14 +19,12 @@ ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")  # Pode ser "blue" (padrão), "green", "dark-blue"
 
 # Cores Personalizadas (Hex)
-COLOR_BG = "#1a1a1a"       # Fundo Principal
 COLOR_CARD = "#2b2b2b"     # Fundo dos Cartões/Frames
 COLOR_ACCENT = "#2cc985"   # Verde Neon (Ações Principais)
 COLOR_TEXT = "#ffffff"     # Texto Principal
 COLOR_TEXT_DIM = "#a0a0a0" # Texto Secundário
-COLOR_DANGER = "#e74c3c"   # Vermelho (Erros/Sair)
 COLOR_INFO = "#3498db"     # Azul Informação
-PASSWORD_REGISTOS = "admin" # Senha para acessar registos
+PASSWORD_REGISTOS = "picanha2026" # Senha para acessar registos
 
 # --- CONFIGURAÇÃO DE DIRETÓRIOS ---
 # Define pasta de dados local (ao lado do script/executável) para portabilidade
@@ -106,6 +102,8 @@ class App(ctk.CTk):
             self.current_frame = MenuPrincipal(self.container, self)
         elif page_name == "ChecklistFrame":
             self.current_frame = ChecklistFrame(self.container, self)
+        elif page_name == "RegistosFrame":
+            self.current_frame = RegistosFrame(self.container, self)
         
         if self.current_frame:
             self.current_frame.pack(fill="both", expand=True)
@@ -165,7 +163,7 @@ class MenuPrincipal(ctk.CTkFrame):
         password = dialog.get_input()
         
         if password == PASSWORD_REGISTOS:
-            abrir_registos_excel()
+            self.controller.show_frame("RegistosFrame")
         elif password is not None: # Se não cancelou
             messagebox.showerror("Erro", "Palavra-passe incorreta!")
 
@@ -364,6 +362,221 @@ class ChecklistFrame(ctk.CTkFrame):
         
         # Chaman lógica de geração (reutilizando função externa refatorada ou movida)
         gerar_relatorio_logic(self.controller.sys_info, usuario, compra_num, testes_mapped, danos, ram_details)
+
+class RegistosFrame(ctk.CTkFrame):
+    def __init__(self, parent, controller):
+        super().__init__(parent, fg_color="transparent")
+        self.controller = controller
+        
+        # Top Bar
+        top_bar = ctk.CTkFrame(self, fg_color=COLOR_CARD, height=60, corner_radius=0)
+        top_bar.pack(fill="x", side="top")
+        
+        ctk.CTkButton(top_bar, text="⬅ Voltar", command=lambda: controller.show_frame("MenuPrincipal"),
+                     fg_color="transparent", text_color=COLOR_TEXT, width=80).pack(side="left", padx=10)
+        
+        ctk.CTkLabel(top_bar, text="REGISTOS DE CHECKLIST", font=("Roboto Medium", 18)).pack(side="left", padx=20)
+        
+        # Main Layout
+        self.main_area = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_area.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Right Panel (Editor) - Packed first so it takes priority on the right side
+        self.editor_frame = ctk.CTkFrame(self.main_area, fg_color=COLOR_CARD, width=300)
+        self.editor_frame.pack(side="right", fill="y", padx=(15, 0))
+        self.editor_frame.pack_propagate(False) # Força a manter os 300px de largura
+        
+        # Left Panel (Table) - Fills the rest of the available space
+        self.tree_frame = ctk.CTkFrame(self.main_area, fg_color=COLOR_CARD)
+        self.tree_frame.pack(side="left", fill="both", expand=True)
+        
+        # Style
+        style = ttk.Style()
+        style.theme_use("default")
+        style.configure("Treeview", 
+                        background=COLOR_CARD,
+                        foreground=COLOR_TEXT,
+                        rowheight=25,
+                        fieldbackground=COLOR_CARD,
+                        bordercolor=COLOR_CARD,
+                        borderwidth=0)
+        style.map('Treeview', background=[('selected', COLOR_INFO)])
+        style.configure("Treeview.Heading",
+                        background="#333333",
+                        foreground=COLOR_TEXT,
+                        relief="flat")
+        style.map("Treeview.Heading", background=[('active', "#444444")])
+
+        # Scrollbars
+        self.tree_scroll_y = ctk.CTkScrollbar(self.tree_frame, orientation="vertical")
+        self.tree_scroll_y.pack(side="right", fill="y")
+        
+        self.tree_scroll_x = ctk.CTkScrollbar(self.tree_frame, orientation="horizontal")
+        self.tree_scroll_x.pack(side="bottom", fill="x")
+        
+        self.tree = ttk.Treeview(self.tree_frame, yscrollcommand=self.tree_scroll_y.set, xscrollcommand=self.tree_scroll_x.set, selectmode="extended")
+        self.tree.pack(fill="both", expand=True)
+        
+        self.tree_scroll_y.configure(command=self.tree.yview)
+        self.tree_scroll_x.configure(command=self.tree.xview)
+        self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
+        
+
+        
+        ctk.CTkLabel(self.editor_frame, text="✏️ Editor", font=("Roboto Medium", 16)).pack(pady=10)
+        
+        self.editor_scroll = ctk.CTkScrollableFrame(self.editor_frame, fg_color="transparent")
+        self.editor_scroll.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        self.btn_save = ctk.CTkButton(self.editor_frame, text="GUARDAR ALTERAÇÕES", 
+                                     fg_color=COLOR_ACCENT, hover_color="#27ae60",
+                                     command=self.save_edits)
+        self.btn_save.pack(pady=15, padx=10, fill="x")
+        
+        # Variables
+        self.df = None
+        self.current_idx = None
+        self.editor_widgets = {}
+        
+        # Load Data on init
+        self.after(100, self.load_data)
+
+    def load_data(self):
+        if not os.path.exists(EXCEL_FILE):
+             self.tree.insert("", "end", values=("Nenhum registo de momento.",))
+             return
+             
+        try:
+             self.df = pd.read_excel(EXCEL_FILE)
+             
+             # Reset tree
+             for item in self.tree.get_children():
+                 self.tree.delete(item)
+             
+             # Setup columns
+             self.tree["columns"] = list(self.df.columns)
+             self.tree["show"] = "headings"
+             
+             for col in self.df.columns:
+                 self.tree.heading(col, text=col)
+                 width = 150 if col in ["Modelo", "Serial", "Notas", "CPU", "Disco", "GPU"] else 80
+                 self.tree.column(col, width=width, minwidth=50, stretch=False)
+                 
+             # Insert rows
+             for idx, row in self.df.iterrows():
+                 values = ["" if pd.isna(val) else str(val) for val in row]
+                 self.tree.insert("", "end", iid=str(idx), values=values)
+                 
+             self.create_editor_fields()
+        except Exception as e:
+             messagebox.showerror("Erro", f"Falha ao ler Excel: {e}")
+
+    def create_editor_fields(self):
+        if self.df is None or self.df.empty: return
+        
+        for w in self.editor_scroll.winfo_children():
+            w.destroy()
+        self.editor_widgets.clear()
+        
+        read_only_cols = ["Data"]
+        
+        for col in self.df.columns:
+            lbl = ctk.CTkLabel(self.editor_scroll, text=col, font=("Roboto", 12))
+            lbl.pack(anchor="w", pady=(5, 0))
+            
+            if col == "Notas":
+                entry = ctk.CTkTextbox(self.editor_scroll, height=80)
+                entry.pack(fill="x", pady=2)
+            elif col in ["Teclado", "Ecrã", "Touch Screen", "Wifi", "LAN", "Webcam", "Microfone", "Colunas", "USB", "Portas de Vídeo"]:
+                entry = ctk.CTkComboBox(self.editor_scroll, values=["✓", "✗", "N/A"])
+                entry.pack(fill="x", pady=2)
+            else:
+                entry = ctk.CTkEntry(self.editor_scroll)
+                entry.pack(fill="x", pady=2)
+            
+            if col in read_only_cols and hasattr(entry, 'configure'):
+                try: entry.configure(state="disabled")
+                except: pass
+                
+            self.editor_widgets[col] = entry
+
+    def on_tree_select(self, event):
+        selected = self.tree.selection()
+        if not selected:
+             # Retirado o disable do btn e o clear caso perca o foco por clicar num Entry
+             return
+             
+        self.current_idx = int(selected[0])
+        
+        item_values = self.tree.item(selected[0], "values")
+        
+        for i, col in enumerate(self.df.columns):
+             widget = self.editor_widgets.get(col)
+             if widget:
+                 was_disabled = False
+                 try:
+                     was_disabled = (widget.cget("state") == "disabled")
+                 except Exception:
+                     pass
+                 
+                 if was_disabled: 
+                     try: widget.configure(state="normal")
+                     except: pass
+                 
+                 val = item_values[i]
+                 
+                 if isinstance(widget, ctk.CTkTextbox):
+                     widget.delete("1.0", "end")
+                     widget.insert("1.0", val if val != "nan" else "")
+                 elif isinstance(widget, ctk.CTkComboBox):
+                     widget.set(val if val != "nan" else "")
+                 else:
+                     widget.delete(0, "end")
+                     widget.insert(0, val if val != "nan" else "")
+                     
+                 if was_disabled: 
+                     try: widget.configure(state="disabled")
+                     except: pass
+
+    def save_edits(self):
+        if self.current_idx is None:
+             messagebox.showwarning("Aviso", "Por favor, selecione um registo na tabela à esquerda antes de guardar alterações.")
+             return
+        if self.df is None: return
+        
+        try:
+             # Converter current_idx para int explicitamente por segurança, embora já devesse vir como int do on_tree_select
+             idx = int(self.current_idx)
+             
+             for col, widget in self.editor_widgets.items():
+                 is_disabled = False
+                 try:
+                     is_disabled = (widget.cget("state") == "disabled")
+                 except Exception:
+                     pass
+                     
+                 if is_disabled:
+                     continue
+                     
+                 if isinstance(widget, ctk.CTkTextbox):
+                     val = widget.get("1.0", "end-1c")
+                 else:
+                     val = widget.get()
+                     
+                 # Evitar erro de dtype int64/float64 ao guardar strings (ex. N.º de Série muito grande)
+                 if str(self.df[col].dtype) != 'object':
+                     self.df[col] = self.df[col].astype(object)
+                     
+                 self.df.at[idx, col] = val
+                 
+             self.df.to_excel(EXCEL_FILE, index=False, sheet_name="Registos")
+             formatar_excel(EXCEL_FILE)
+             
+             self.load_data()
+             messagebox.showinfo("Sucesso", "Registo atualizado e guardado!")
+        except Exception as e:
+             messagebox.showerror("Erro", f"Erro ao guardar: {e}")
+
 
 
 # --- LÓGICA DO SISTEMA (ADAPTADA) ---
@@ -906,37 +1119,6 @@ def exportar_compra_pdf_ui():
     except Exception as e:
         messagebox.showerror("Erro", f"Erro ao exportar: {str(e)}")
 
-def abrir_registos_excel():
-    if os.path.exists(EXCEL_FILE): 
-        try:
-            os.startfile(EXCEL_FILE)
-        except Exception as e:
-            # Tentar abrir com subprocess se os.startfile falhar
-            try:
-                if sys.platform == 'win32':
-                    subprocess.Popen(['start', '', EXCEL_FILE], shell=True)
-                else:
-                    subprocess.call(['xdg-open', EXCEL_FILE])
-            except Exception as e2:
-                 messagebox.showerror("Erro", f"Não foi possível abrir o Excel.\nCaminho: {EXCEL_FILE}\nErro: {e}\n{e2}")
-    else: 
-        # Se não existir, perguntar se quer criar um vazio
-        resposta = messagebox.askyesno("Não Encontrado", "O ficheiro de registos ainda não existe. Deseja criar um novo agora?")
-        if resposta:
-            try:
-                # Criar DataFrame vazio com as colunas corretas
-                cols = [
-                    "Data", "Técnico", "Nº Compra", "Modelo", "Serial", "CPU", "RAM", "Tipo RAM", "Config RAM", 
-                    "Disco", "GPU",
-                    "Teclado", "Ecrã", "Touch Screen", "Wifi", "LAN", "Webcam", "Microfone", "Colunas", "USB", 
-                    "Portas de Vídeo", "Notas"
-                ]
-                df = pd.DataFrame(columns=cols)
-                df.to_excel(EXCEL_FILE, index=False)
-                formatar_excel(EXCEL_FILE)
-                os.startfile(EXCEL_FILE)
-            except Exception as e:
-                messagebox.showerror("Erro", f"Erro ao criar ficheiro: {e}")
 
 if __name__ == "__main__":
     app = App()
