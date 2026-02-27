@@ -43,8 +43,7 @@ if not os.path.exists(DATA_DIR):
         print(f"Erro ao criar diretório de dados: {e}")
 
 EXCEL_FILE = os.path.join(DATA_DIR, "registos_checklist.xlsx")
-
-
+EXCEL_FILE_TV = os.path.join(DATA_DIR, "registos_tvs.xlsx")
 
 class App(ctk.CTk):
     def __init__(self):
@@ -102,8 +101,12 @@ class App(ctk.CTk):
             self.current_frame = MenuPrincipal(self.container, self)
         elif page_name == "ChecklistFrame":
             self.current_frame = ChecklistFrame(self.container, self)
+        elif page_name == "ChecklistTVFrame":
+            self.current_frame = ChecklistTVFrame(self.container, self)
         elif page_name == "RegistosFrame":
             self.current_frame = RegistosFrame(self.container, self)
+        elif page_name == "RegistosTVFrame":
+            self.current_frame = RegistosTVFrame(self.container, self)
         
         if self.current_frame:
             self.current_frame.pack(fill="both", expand=True)
@@ -127,11 +130,17 @@ class MenuPrincipal(ctk.CTkFrame):
                     font=("Roboto", 14), text_color=COLOR_TEXT_DIM).pack(pady=(0, 40))
         
         # Botões (Cartões Grandes)
-        self.create_menu_button("📝  NOVA CHECKLIST", COLOR_ACCENT, 
+        self.create_menu_button("💻  NOVA CHECKLIST PC", COLOR_ACCENT, 
                               lambda: controller.show_frame("ChecklistFrame"))
+                              
+        self.create_menu_button("📺  NOVA CHECKLIST TV", "#2980b9", 
+                              lambda: controller.show_frame("ChecklistTVFrame"))
         
-        self.create_menu_button("📂  ABRIR REGISTOS", COLOR_INFO, 
+        self.create_menu_button("📂  ABRIR REGISTOS PC", COLOR_INFO, 
                               self.check_password_registos)
+                              
+        self.create_menu_button("📂  ABRIR REGISTOS TV", "#1abc9c", 
+                              self.check_password_registos_tv)
         
         self.create_menu_button("⚠️  EXPORTAR DANOS", "#e67e22", 
                               exportar_danos_ui)
@@ -165,6 +174,16 @@ class MenuPrincipal(ctk.CTkFrame):
         if password == PASSWORD_REGISTOS:
             self.controller.show_frame("RegistosFrame")
         elif password is not None: # Se não cancelou
+            messagebox.showerror("Erro", "Palavra-passe incorreta!")
+
+    def check_password_registos_tv(self):
+        """Solicita senha antes de abrir os registos de TV"""
+        dialog = ctk.CTkInputDialog(text="Digite a palavra-passe de administrador:", title="Acesso Restrito (TVs)")
+        password = dialog.get_input()
+        
+        if password == PASSWORD_REGISTOS:
+            self.controller.show_frame("RegistosTVFrame")
+        elif password is not None:
             messagebox.showerror("Erro", "Palavra-passe incorreta!")
 
 class ChecklistFrame(ctk.CTkFrame):
@@ -395,6 +414,219 @@ class ChecklistFrame(ctk.CTkFrame):
         
         # Chaman lógica de geração (reutilizando função externa refatorada ou movida)
         gerar_relatorio_logic(self.controller.sys_info, usuario, compra_num, testes_mapped, danos, ram_details)
+
+class ChecklistTVFrame(ctk.CTkFrame):
+    def __init__(self, parent, controller):
+        super().__init__(parent, fg_color="transparent")
+        self.controller = controller
+        
+        # Top Bar
+        top_bar = ctk.CTkFrame(self, fg_color=COLOR_CARD, height=60, corner_radius=0)
+        top_bar.pack(fill="x", side="top")
+        
+        ctk.CTkButton(top_bar, text="⬅ Voltar", command=lambda: controller.show_frame("MenuPrincipal"),
+                     fg_color="transparent", text_color=COLOR_TEXT, width=80).pack(side="left", padx=10)
+        
+        ctk.CTkLabel(top_bar, text="NOVO RELATÓRIO TV", font=("Roboto Medium", 18)).pack(side="left", padx=20)
+        
+        # Scroll Area Principal
+        self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # --- SEÇÃO 1: TÉCNICO ---
+        self.add_section_header("1. Técnico Responsável")
+        self.user_frame = ctk.CTkFrame(self.scroll, fg_color=COLOR_CARD)
+        self.user_frame.pack(fill="x", pady=(0, 20))
+        
+        users = ["Guilherme", "Alex", "Araujo", "Convidado"]
+        self.user_var = ctk.StringVar(value=users[0])
+        self.combo_user = ctk.CTkComboBox(self.user_frame, values=users, variable=self.user_var,
+                                        command=self.check_guest, width=300)
+        self.combo_user.pack(padx=20, pady=20, anchor="w")
+        
+        self.entry_guest = ctk.CTkEntry(self.user_frame, placeholder_text="Nome do Convidado", width=300)
+        
+        # --- SEÇÃO 2: HARDWARE TV ---
+        self.add_section_header("2. TV Detectada")
+        self.hw_frame = ctk.CTkFrame(self.scroll, fg_color=COLOR_CARD)
+        self.hw_frame.pack(fill="x", pady=(0, 20))
+        
+        self.entry_model = ctk.CTkEntry(self.hw_frame, font=("Roboto Medium", 16), width=400)
+        self.entry_model.pack(padx=20, pady=(15, 5), anchor="w")
+        
+        self.lbl_specs = ctk.CTkLabel(self.hw_frame, text="Aguarde...", text_color=COLOR_TEXT_DIM, justify="left")
+        self.lbl_specs.pack(padx=20, pady=(0, 15), anchor="w")
+        
+        self.btn_detect = ctk.CTkButton(self.hw_frame, text="Detectar Ecrã Novamente", command=self.update_hardware_info, width=200)
+        self.btn_detect.pack(padx=20, pady=(0, 15), anchor="w")
+        
+        self.tv_info = None
+        self.update_hardware_info()
+        
+        # --- SEÇÃO 3: COMPRA ---
+        self.add_section_header("3. Referência de Compra")
+        self.compra_frame = ctk.CTkFrame(self.scroll, fg_color=COLOR_CARD)
+        self.compra_frame.pack(fill="x", pady=(0, 20))
+        
+        self.entry_compra = ctk.CTkEntry(self.compra_frame, placeholder_text="Ex: 123456", width=300)
+        self.entry_compra.pack(padx=20, pady=20, anchor="w")
+        
+        # --- SEÇÃO 4: TESTES ---
+        self.add_section_header("4. Checklist de Testes")
+        self.test_vars = {}
+        tests = ["Ecrã / Imagem", "Touch Screen", "Colunas", "Cabos / Energia", "Botões", "Comando (Remote)", "Webcam"]
+        
+        self.tests_frame = ctk.CTkFrame(self.scroll, fg_color=COLOR_CARD)
+        self.tests_frame.pack(fill="x", pady=(0, 20))
+        
+        for i, test in enumerate(tests):
+            row = i // 2
+            col = i % 2
+            self.create_test_item(self.tests_frame, test, row, col)
+
+        # --- SEÇÃO 5: PORTAS ---
+        self.add_section_header("5. Portas de Vídeo (Quantidade)")
+        self.port_vars = {}
+        ports = ["DisplayPort", "HDMI", "DVI", "VGA", "RS232", "USB", "USB A", "USB C"]
+        
+        self.ports_frame = ctk.CTkFrame(self.scroll, fg_color=COLOR_CARD)
+        self.ports_frame.pack(fill="x", pady=(0, 20))
+        
+        for i, port in enumerate(ports):
+            row = i // 3
+            col = i % 3
+            self.create_port_item(self.ports_frame, port, row, col)
+
+        # --- SEÇÃO 6: NOTAS ---
+        self.add_section_header("6. Observações e Danos")
+        self.notes_frame = ctk.CTkFrame(self.scroll, fg_color=COLOR_CARD)
+        self.notes_frame.pack(fill="x", pady=(0, 20))
+        
+        self.text_notes = ctk.CTkTextbox(self.notes_frame, height=100)
+        self.text_notes.pack(fill="x", padx=20, pady=(20, 10))
+        
+        self.quick_notes_frame = ctk.CTkFrame(self.notes_frame, fg_color="transparent")
+        self.quick_notes_frame.pack(fill="x", padx=20, pady=(0, 20))
+        
+        quick_texts = [
+            "riscos no ecrã", "sem comando", "botão preso", "dead pixels", "sem cabo",
+            "carcaça partida", "mancha no lcd"
+        ]
+        
+        row, col = 0, 0
+        for text in quick_texts:
+            btn = ctk.CTkButton(self.quick_notes_frame, text=text, width=80,
+                               fg_color=COLOR_INFO, hover_color="#2980b9",
+                               command=lambda t=text: self.add_quick_note(t))
+            btn.grid(row=row, column=col, padx=4, pady=4)
+            col += 1
+            if col > 4: 
+                col = 0
+                row += 1
+
+        # --- BOTÃO AÇÃO ---
+        self.btn_save = ctk.CTkButton(self.scroll, text="GERAR RELATÓRIO E GUARDAR", 
+                                     fg_color=COLOR_ACCENT, hover_color="#27ae60",
+                                     height=50, font=("Roboto Medium", 14),
+                                     command=self.gerar_relatorio)
+        self.btn_save.pack(fill="x", pady=20)
+
+    def check_guest(self, choice):
+        if choice == "Convidado":
+            self.entry_guest.pack(padx=20, pady=(0, 20), anchor="w")
+        else:
+            self.entry_guest.pack_forget()
+
+    def update_hardware_info(self):
+        self.tv_info = get_tv_info()
+        if self.tv_info:
+            specs = f"S/N: {self.tv_info.get('serial', 'N/A')}\nResolução: {self.tv_info.get('resolution', 'N/A')}\nRefresh Rate: {self.tv_info.get('refresh_rate', 'N/A')}"
+            self.lbl_specs.configure(text=specs)
+            
+            auto_modelo = f"{self.tv_info.get('marca', 'Marca Desconhecida')} - {self.tv_info.get('modelo', 'Modelo Desconhecido')}"
+            self.entry_model.delete(0, "end")
+            self.entry_model.insert(0, auto_modelo)
+
+    def create_test_item(self, parent, test_name, row, col):
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
+        frame.grid(row=row, column=col, sticky="ew", padx=20, pady=10)
+        ctk.CTkLabel(frame, text=test_name, font=("Roboto", 12)).pack(anchor="w")
+        var = ctk.BooleanVar(value=False)
+        self.test_vars[test_name] = var
+        switch = ctk.CTkSwitch(frame, text="Aprovado", variable=var, 
+                              progress_color=COLOR_ACCENT, button_color="#ffffff")
+        switch.pack(anchor="w")
+        
+    def create_port_item(self, parent, port_name, row, col):
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
+        frame.grid(row=row, column=col, sticky="ew", padx=20, pady=10)
+        
+        # Checkbox + quantity entry
+        var_check = ctk.BooleanVar(value=False)
+        var_qty = ctk.StringVar(value="0")
+        
+        def toggle_entry():
+            if var_check.get():
+                entry.configure(state="normal")
+                if var_qty.get() == "0":
+                    var_qty.set("1")
+            else:
+                var_qty.set("0")
+                entry.configure(state="disabled")
+                
+        chk = ctk.CTkCheckBox(frame, text=port_name, variable=var_check, command=toggle_entry)
+        chk.pack(anchor="w", side="top", pady=(0,5))
+        
+        entry = ctk.CTkEntry(frame, textvariable=var_qty, width=50, state="disabled")
+        entry.pack(anchor="w", side="left")
+        
+        self.port_vars[port_name] = var_qty
+
+    def add_quick_note(self, text):
+        current_text = self.text_notes.get("1.0", "end-1c").strip()
+        if current_text:
+            self.text_notes.insert("end", f", {text}")
+        else:
+            self.text_notes.insert("end", text)
+
+    def gerar_relatorio(self):
+        usuario = self.user_var.get()
+        if usuario == "Convidado":
+            usuario = self.entry_guest.get() or "Convidado"
+            
+        compra_num = self.entry_compra.get().strip()
+        
+        if not compra_num:
+            messagebox.showwarning("Aviso", "A Referência de Compra é de preenchimento obrigatório.")
+            return
+            
+        if not compra_num.replace('/', '').replace('\\', '').isalnum():
+            messagebox.showwarning("Aviso", "A Referência de Compra só pode conter letras, números e barras (/).\nCaracteres especiais não são permitidos.")
+            return
+            
+        danos = self.text_notes.get("1.0", "end-1c")
+        
+        # Override tv_info marca and model with the user's manual entry if edited
+        marca_modelo = self.entry_model.get().strip()
+        self.tv_info['marca'] = ""
+        self.tv_info['modelo'] = marca_modelo
+        
+        testes = {name: var.get() for name, var in self.test_vars.items()}
+        
+        portas = {}
+        for name, var in self.port_vars.items():
+            try:
+                qtd = int(var.get())
+                if qtd > 0:
+                    portas[name] = qtd
+            except ValueError:
+                pass
+                
+        gerar_relatorio_tv_logic(self.tv_info, usuario, compra_num, portas, testes, danos)
+
+    def add_section_header(self, text):
+        ctk.CTkLabel(self.scroll, text=text, font=("Roboto Medium", 14), 
+                    text_color=COLOR_ACCENT).pack(anchor="w", pady=(10, 5))
 
 class RegistosFrame(ctk.CTkFrame):
     def __init__(self, parent, controller):
@@ -664,7 +896,244 @@ class RegistosFrame(ctk.CTkFrame):
              self.load_data()
              messagebox.showinfo("Sucesso", "Registo atualizado e guardado!")
         except Exception as e:
-             messagebox.showerror("Erro", f"Erro ao guardar: {e}")
+              messagebox.showerror("Erro", f"Erro ao guardar: {e}")
+
+class RegistosTVFrame(ctk.CTkFrame):
+    def __init__(self, parent, controller):
+        super().__init__(parent, fg_color="transparent")
+        self.controller = controller
+        
+        top_bar = ctk.CTkFrame(self, fg_color=COLOR_CARD, height=60, corner_radius=0)
+        top_bar.pack(fill="x", side="top")
+        
+        ctk.CTkButton(top_bar, text="⬅ Voltar", command=lambda: controller.show_frame("MenuPrincipal"),
+                     fg_color="transparent", text_color=COLOR_TEXT, width=80).pack(side="left", padx=10)
+        
+        ctk.CTkLabel(top_bar, text="REGISTOS DE TVs", font=("Roboto Medium", 18)).pack(side="left", padx=20)
+        
+        self.main_area = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_area.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        self.editor_frame = ctk.CTkFrame(self.main_area, fg_color=COLOR_CARD, width=300)
+        self.editor_frame.pack(side="right", fill="y", padx=(15, 0))
+        self.editor_frame.pack_propagate(False)
+        
+        self.tree_frame = ctk.CTkFrame(self.main_area, fg_color=COLOR_CARD)
+        self.tree_frame.pack(side="left", fill="both", expand=True)
+        
+        self.filter_frame = ctk.CTkFrame(self.tree_frame, fg_color="transparent")
+        self.filter_frame.pack(fill="x", padx=10, pady=(10, 0))
+        
+        self.search_var = ctk.StringVar()
+        self.search_entry = ctk.CTkEntry(self.filter_frame, placeholder_text="Procurar (S/N, Marca, Modelo, Nº Compra...)", 
+                                        textvariable=self.search_var, width=300)
+        self.search_entry.pack(side="left", padx=(0, 10))
+        self.search_var.trace_add("write", lambda *args: self.apply_filters())
+        
+        self.sort_var = ctk.StringVar(value="Data")
+        self.sort_combo = ctk.CTkComboBox(self.filter_frame, values=["Data", "Ordem Alfabética (Modelo)"], 
+                                         variable=self.sort_var, command=lambda e: self.apply_filters(), width=200)
+        self.sort_combo.pack(side="right")
+        
+        ctk.CTkLabel(self.filter_frame, text="Ordenar por:").pack(side="right", padx=(0, 10))
+        
+        style = ttk.Style()
+        style.theme_use("default")
+        style.configure("TV.Treeview", 
+                        background=COLOR_CARD,
+                        foreground=COLOR_TEXT,
+                        rowheight=25,
+                        fieldbackground=COLOR_CARD,
+                        bordercolor=COLOR_CARD,
+                        borderwidth=0)
+        style.map('TV.Treeview', background=[('selected', COLOR_INFO)])
+        style.configure("TV.Treeview.Heading",
+                        background="#333333",
+                        foreground=COLOR_TEXT,
+                        relief="flat")
+        style.map("TV.Treeview.Heading", background=[('active', "#444444")])
+
+        self.tree_scroll_y = ctk.CTkScrollbar(self.tree_frame, orientation="vertical")
+        self.tree_scroll_y.pack(side="right", fill="y")
+        
+        self.tree_scroll_x = ctk.CTkScrollbar(self.tree_frame, orientation="horizontal")
+        self.tree_scroll_x.pack(side="bottom", fill="x")
+        
+        self.tree = ttk.Treeview(self.tree_frame, style="TV.Treeview", yscrollcommand=self.tree_scroll_y.set, xscrollcommand=self.tree_scroll_x.set, selectmode="extended")
+        self.tree.pack(fill="both", expand=True)
+        
+        self.tree_scroll_y.configure(command=self.tree.yview)
+        self.tree_scroll_x.configure(command=self.tree.xview)
+        self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
+        
+        ctk.CTkLabel(self.editor_frame, text="✏️ Editor", font=("Roboto Medium", 16)).pack(pady=10)
+        
+        self.editor_scroll = ctk.CTkScrollableFrame(self.editor_frame, fg_color="transparent")
+        self.editor_scroll.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        self.btn_save = ctk.CTkButton(self.editor_frame, text="GUARDAR ALTERAÇÕES", 
+                                     fg_color=COLOR_ACCENT, hover_color="#27ae60",
+                                     command=self.save_edits)
+        self.btn_save.pack(pady=15, padx=10, fill="x")
+        
+        self.df = None
+        self.filtered_df = None
+        self.current_idx = None
+        self.editor_widgets = {}
+        
+        self.after(100, self.load_data)
+
+    def load_data(self):
+        if not os.path.exists(EXCEL_FILE_TV):
+             self.tree.insert("", "end", values=("Nenhum registo de TVs de momento.",))
+             return
+        try:
+             self.df = pd.read_excel(EXCEL_FILE_TV)
+             self.apply_filters()
+             self.create_editor_fields()
+        except Exception as e:
+             messagebox.showerror("Erro", f"Falha ao ler Excel: {e}")
+
+    def apply_filters(self):
+        if self.df is None or self.df.empty: return
+        query = self.search_var.get().strip().lower()
+        sort_by = self.sort_var.get()
+        self.filtered_df = self.df.copy()
+        
+        for col in ['Marca', 'Modelo', 'Serial', 'Nº Compra']:
+             if col in self.filtered_df.columns:
+                 self.filtered_df[col] = self.filtered_df[col].astype(str)
+                 
+        if query:
+            mask = self.filtered_df.apply(lambda row: any(query in str(val).lower() for val in row), axis=1)
+            self.filtered_df = self.filtered_df[mask]
+            
+        if sort_by == "Data":
+            try:
+                self.filtered_df['DataRaw'] = pd.to_datetime(self.filtered_df['Data'], format="%d/%m/%Y %H:%M", errors='coerce')
+                self.filtered_df = self.filtered_df.sort_values(by='DataRaw', ascending=False)
+                self.filtered_df = self.filtered_df.drop(columns=['DataRaw'])
+            except:
+                self.filtered_df = self.filtered_df.sort_index(ascending=False)
+        elif sort_by == "Ordem Alfabética (Modelo)":
+            if 'Modelo' in self.filtered_df.columns:
+                self.filtered_df = self.filtered_df.sort_values(by='Modelo', ascending=True)
+
+        self.populate_tree()
+        
+    def populate_tree(self):
+         for item in self.tree.get_children():
+             self.tree.delete(item)
+         if self.filtered_df is None or self.filtered_df.empty:
+             return
+         self.tree["columns"] = list(self.df.columns)
+         self.tree["show"] = "headings"
+         for col in self.df.columns:
+             self.tree.heading(col, text=col)
+             width = 150 if col in ["Marca", "Modelo", "Serial", "Notas", "Resolução"] else 80
+             self.tree.column(col, width=width, minwidth=50, stretch=False)
+         for idx, row in self.filtered_df.iterrows():
+             values = []
+             for val in row:
+                 if pd.isna(val) or val == "nan":
+                     values.append("")
+                 else:
+                     val_str = str(val)
+                     if val_str.endswith('.0') and col in ["DisplayPort", "HDMI", "DVI", "VGA", "RS232", "USB", "USB A", "USB C"]:
+                         val_str = val_str[:-2]
+                     values.append(val_str)
+             self.tree.insert("", "end", iid=str(idx), values=values)
+
+    def create_editor_fields(self):
+        if self.df is None or self.df.empty: return
+        for w in self.editor_scroll.winfo_children(): w.destroy()
+        self.editor_widgets.clear()
+        
+        read_only_cols = ["Data"]
+        for col in self.df.columns:
+            lbl = ctk.CTkLabel(self.editor_scroll, text=col, font=("Roboto", 12))
+            lbl.pack(anchor="w", pady=(5, 0))
+            
+            if col == "Notas":
+                entry = ctk.CTkTextbox(self.editor_scroll, height=80)
+                entry.pack(fill="x", pady=2)
+            elif col in ["Ecrã / Imagem", "Touch Screen", "Colunas", "Cabos / Energia", "Botões", "Comando (Remote)", "Webcam"]:
+                entry = ctk.CTkComboBox(self.editor_scroll, values=["✓", "✗", "N/A"])
+                entry.pack(fill="x", pady=2)
+            else:
+                entry = ctk.CTkEntry(self.editor_scroll)
+                entry.pack(fill="x", pady=2)
+            
+            if col in read_only_cols and hasattr(entry, 'configure'):
+                try: entry.configure(state="disabled")
+                except: pass
+            self.editor_widgets[col] = entry
+
+    def on_tree_select(self, event):
+        selected = self.tree.selection()
+        if not selected: return
+             
+        self.current_idx = int(selected[0])
+        item_values = self.tree.item(selected[0], "values")
+        
+        for i, col in enumerate(self.df.columns):
+             widget = self.editor_widgets.get(col)
+             if widget:
+                 was_disabled = False
+                 try: was_disabled = (widget.cget("state") == "disabled")
+                 except: pass
+                 if was_disabled: 
+                     try: widget.configure(state="normal")
+                     except: pass
+                 
+                 val = item_values[i]
+                 if isinstance(widget, ctk.CTkTextbox):
+                     widget.delete("1.0", "end")
+                     widget.insert("1.0", val if val != "nan" else "")
+                 elif isinstance(widget, ctk.CTkComboBox):
+                     widget.set(val if val != "nan" else "")
+                 else:
+                     widget.delete(0, "end")
+                     
+                     if val.endswith('.0') and col in ["DisplayPort", "HDMI", "DVI", "VGA", "RS232", "USB", "USB A", "USB C"]:
+                         val = val[:-2]
+                         
+                     widget.insert(0, val if val != "nan" else "")
+                     
+                 if was_disabled: 
+                     try: widget.configure(state="disabled")
+                     except: pass
+
+    def save_edits(self):
+        if self.current_idx is None:
+             messagebox.showwarning("Aviso", "Por favor, selecione um registo na tabela antes.")
+             return
+        if self.df is None: return
+        try:
+             idx = int(self.current_idx)
+             for col, widget in self.editor_widgets.items():
+                 is_disabled = False
+                 try: is_disabled = (widget.cget("state") == "disabled")
+                 except: pass
+                 if is_disabled: continue
+                     
+                 if isinstance(widget, ctk.CTkTextbox):
+                     val = widget.get("1.0", "end-1c")
+                 else:
+                     val = widget.get()
+                     
+                 if str(self.df[col].dtype) != 'object':
+                     self.df[col] = self.df[col].astype(object)
+                     
+                 self.df.at[idx, col] = val
+                 
+             self.df.to_excel(EXCEL_FILE_TV, index=False, sheet_name="RegistosTV")
+             formatar_excel_tv(EXCEL_FILE_TV)
+             
+             self.load_data()
+             messagebox.showinfo("Sucesso", "Registo atualizado e guardado!")
+        except Exception as e:
+             messagebox.showerror("Erro", f"Erro ao guardar TV: {e}")
 
 
 
@@ -1115,52 +1584,107 @@ def exportar_danos_ui():
         messagebox.showerror("Erro", f"Erro ao exportar: {str(e)}")
 
 def formatar_excel_compra_pdf(filepath):
-    """Formata o Excel temporário para ficar apresentável no PDF"""
+    """Formata o Excel temporário para ficar apresentável no PDF com duas tabelas"""
     try:
+        from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
         wb = load_workbook(filepath)
         ws = wb.active
         
-        # Estilos
-        header_fill = PatternFill(start_color="8E44AD", end_color="8E44AD", fill_type="solid") # Roxo
+        # Ocultar linhas de grelha
+        ws.sheet_view.showGridLines = False
+        
+        header_fill_pc = PatternFill(start_color="8E44AD", end_color="8E44AD", fill_type="solid") # Roxo
+        header_fill_tv = PatternFill(start_color="E67E22", end_color="E67E22", fill_type="solid") # Laranja
         header_font = Font(bold=True, color="FFFFFF", size=11)
-        header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        title_font = Font(bold=True, color="333333", size=14)
         
-        thin_border = Border(
-            left=Side(style='thin', color='000000'),
-            right=Side(style='thin', color='000000'),
-            top=Side(style='thin', color='000000'),
-            bottom=Side(style='thin', color='000000')
-        )
+        thin_border = Border(left=Side(style='thin', color='000000'), right=Side(style='thin', color='000000'),
+                             top=Side(style='thin', color='000000'), bottom=Side(style='thin', color='000000'))
         
-        left_alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        center_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        left_align = Alignment(horizontal="left", vertical="center", wrap_text=True)
         
-        for cell in ws[1]:
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = header_alignment
-            cell.border = thin_border
-            
-        ws.row_dimensions[1].height = 25
+        # Procurar onde começam os cabeçalhos das tabelas
+        pc_start = None
+        tv_start = None
         
-        for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-            for cell in row:
+        for row_idx in range(1, ws.max_row + 1):
+            val = ws.cell(row=row_idx, column=1).value
+            if val == "COMPUTADORES":
+                ws.cell(row=row_idx, column=1).font = title_font
+                pc_start = row_idx + 1 # O cabeçalho real é na linha seguinte
+            elif val == "MONITORES / TVs":
+                ws.cell(row=row_idx, column=1).font = title_font
+                tv_start = row_idx + 1
+        
+        # Formatar PC Table
+        if pc_start:
+            # Cabeçalho PC
+            ws.merge_cells(start_row=pc_start, start_column=9, end_row=pc_start, end_column=12)
+            for col in range(1, 13):
+                cell = ws.cell(row=pc_start, column=col)
+                if cell.value or col >= 9:
+                    cell.fill = header_fill_pc
+                    cell.font = header_font
+                    cell.alignment = center_align
                 cell.border = thin_border
-                cell.alignment = left_alignment
-                if cell.column_letter == 'B': # Serial
-                    cell.number_format = '@'
-                if cell.column_letter == 'I': # Observações
-                    cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+            ws.row_dimensions[pc_start].height = 25
+            
+            # Dados PC
+            r = pc_start + 1
+            while r <= ws.max_row and ws.cell(row=r, column=1).value and ws.cell(row=r, column=1).value != "MONITORES / TVs":
+                ws.merge_cells(start_row=r, start_column=9, end_row=r, end_column=12)
+                for col in range(1, 13):
+                    c = ws.cell(row=r, column=col)
+                    c.border = thin_border
+                    c.alignment = center_align if col in [7, 8] else left_align # Refresh e Res center
+                    if col == 2: c.number_format = '@' # Serial
+                    if col == 9: c.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True) # Notas
+                r += 1
+                
+        # Formatar TV Table
+        if tv_start:
+            tv_cols = 12
+            
+            # Cabeçalho TV
+            for col in range(1, tv_cols + 1):
+                cell = ws.cell(row=tv_start, column=col)
+                cell.fill = header_fill_tv
+                cell.font = header_font
+                cell.alignment = center_align
+                cell.border = thin_border
+            ws.row_dimensions[tv_start].height = 25
+            
+            # Dados TV
+            r = tv_start + 1
+            while r <= ws.max_row and (ws.cell(row=r, column=1).value or ws.cell(row=r, column=2).value):
+                for col in range(1, tv_cols + 1):
+                    c = ws.cell(row=r, column=col)
+                    c.border = thin_border
+                    c.alignment = center_align if (2 < col < 12) else left_align # Center all ports
+                    if col == 2: c.number_format = '@' # Serial
+                    if col == tv_cols: c.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True) # Notas
+                r += 1
+
+        # Ajustar larguras globais (baseadas no PC que é mais largo, TV vai herdar)
+        ws.column_dimensions['A'].width = 30 # Modelo/Marca
+        ws.column_dimensions['B'].width = 18 # Serial
+        ws.column_dimensions['C'].width = 22 # CPU / Resolução
+        ws.column_dimensions['D'].width = 12 # RAM / Refresh
+        ws.column_dimensions['E'].width = 18 # Disco / DP
+        ws.column_dimensions['F'].width = 24 # GPU / HDMI
+        ws.column_dimensions['G'].width = 12 # Res / DVI
+        ws.column_dimensions['H'].width = 10 # Ref / VGA
+        ws.column_dimensions['I'].width = 8  # PC Obs(m) / RS232
+        ws.column_dimensions['J'].width = 8  # PC Obs(m) / USB
+        ws.column_dimensions['K'].width = 8  # PC Obs(m) / USB C
+        ws.column_dimensions['L'].width = 32 # PC Obs(m) / Notas TV
         
-        # Ajustar larguras
-        ws.column_dimensions['A'].width = 20 # Modelo
-        ws.column_dimensions['B'].width = 15 # Serial
-        ws.column_dimensions['C'].width = 20 # CPU
-        ws.column_dimensions['D'].width = 10 # RAM
-        ws.column_dimensions['E'].width = 15 # Disco
-        ws.column_dimensions['F'].width = 15 # GPU
-        ws.column_dimensions['G'].width = 12 # Resolução
-        ws.column_dimensions['H'].width = 8  # Refresh
-        ws.column_dimensions['I'].width = 35 # Observações
+        # Assegurar que printa correto em folha inteira
+        ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+        ws.page_setup.fitToPage = True
+        ws.page_setup.fitToHeight = False
+        ws.page_setup.fitToWidth = 1
         
         wb.save(filepath)
         return True
@@ -1169,7 +1693,7 @@ def formatar_excel_compra_pdf(filepath):
         return False
 
 def exportar_compra_pdf_ui():
-    if not os.path.exists(EXCEL_FILE):
+    if not os.path.exists(EXCEL_FILE) and not os.path.exists(EXCEL_FILE_TV):
         messagebox.showinfo("Aviso", "Ainda não existem registos para exportar.")
         return
 
@@ -1180,17 +1704,38 @@ def exportar_compra_pdf_ui():
     
     try:
         import win32com.client
-        df = pd.read_excel(EXCEL_FILE)
-        df['Nº Compra'] = df['Nº Compra'].astype(str)
         
-        filtro = df['Nº Compra'] == str(compra_num)
+        df_pcs_export = pd.DataFrame()
+        if os.path.exists(EXCEL_FILE):
+            df_pcs = pd.read_excel(EXCEL_FILE)
+            df_pcs['Nº Compra'] = df_pcs['Nº Compra'].astype(str)
+            filtro_pcs = df_pcs['Nº Compra'] == str(compra_num)
+            colunas_pcs = ['Modelo', 'Serial', 'CPU', 'RAM', 'Disco', 'GPU', 'Resolução', 'Refresh', 'Notas']
+            df_pcs_export = df_pcs[filtro_pcs].reindex(columns=colunas_pcs)
+            df_pcs_export.rename(columns={'Notas': 'Observações'}, inplace=True)
+            
+        df_tvs_export = pd.DataFrame()
+        if os.path.exists(EXCEL_FILE_TV):
+            df_tvs = pd.read_excel(EXCEL_FILE_TV)
+            df_tvs['Nº Compra'] = df_tvs['Nº Compra'].astype(str)
+            filtro_tvs = df_tvs['Nº Compra'] == str(compra_num)
+            # Create a combined Brand/Model column for TVs
+            if not df_tvs.empty:
+                # Tratar valores nulos de forma segura antes da conversão para string
+                df_tvs['Marca'] = df_tvs['Marca'].fillna("")
+                df_tvs['Modelo'] = df_tvs['Modelo'].fillna("")
+                
+                marca = df_tvs['Marca'].astype(str).str.replace('nan', '', case=False)
+                modelo = df_tvs['Modelo'].astype(str).str.replace('nan', '', case=False)
+                
+                df_tvs['Modelo Completo'] = (marca + " " + modelo).str.strip()
+                df_tvs.loc[df_tvs['Modelo Completo'] == "", 'Modelo Completo'] = "Desconhecido"
+                
+                colunas_tvs = ['Modelo Completo', 'Serial', 'Resolução', 'Refresh', 'DisplayPort', 'HDMI', 'DVI', 'VGA', 'RS232', 'USB', 'USB C', 'Notas']
+                df_tvs_export = df_tvs[filtro_tvs].reindex(columns=colunas_tvs)
+                df_tvs_export.rename(columns={'Modelo Completo': 'Marca/Modelo', 'Notas': 'Observações'}, inplace=True)
         
-        colunas_necessarias = ['Modelo', 'Serial', 'CPU', 'RAM', 'Disco', 'GPU', 'Resolução', 'Refresh', 'Notas']
-        
-        df_export = df[filtro].reindex(columns=colunas_necessarias)
-        df_export.rename(columns={'Notas': 'Observações'}, inplace=True)
-        
-        if df_export.empty:
+        if df_pcs_export.empty and df_tvs_export.empty:
             messagebox.showinfo("Vazio", "Nenhum registo encontrado para esta compra.")
             return
 
@@ -1200,7 +1745,27 @@ def exportar_compra_pdf_ui():
         
         temp_excel = os.path.join(DATA_DIR, f"temp_compra_{compra_num}.xlsx")
         
-        df_export.to_excel(temp_excel, index=False)
+        # Write both dataframes to the same sheet with spacing
+        with pd.ExcelWriter(temp_excel, engine='openpyxl') as writer:
+            start_row = 0
+            
+            if not df_pcs_export.empty:
+                pd.DataFrame([["COMPUTADORES"]]).to_excel(writer, index=False, header=False, startrow=start_row)
+                start_row += 1
+                df_pcs_export.to_excel(writer, index=False, startrow=start_row)
+                start_row += len(df_pcs_export) + 3 # Space between tables
+                
+            if not df_tvs_export.empty:
+                pd.DataFrame([["MONITORES / TVs"]]).to_excel(writer, index=False, header=False, startrow=start_row)
+                start_row += 1
+                
+                # Replace port '.0' decimals for cleaner PDF
+                for col in ['DisplayPort', 'HDMI', 'DVI', 'VGA', 'RS232', 'USB', 'USB C']:
+                    if col in df_tvs_export.columns:
+                        df_tvs_export[col] = df_tvs_export[col].astype(str).str.replace(r'\.0$', '', regex=True).replace('nan', '')
+                        
+                df_tvs_export.to_excel(writer, index=False, startrow=start_row)
+
         formatar_excel_compra_pdf(temp_excel)
         
         try:
@@ -1230,8 +1795,288 @@ def exportar_compra_pdf_ui():
             os.startfile(DATA_DIR)
             
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         messagebox.showerror("Erro", f"Erro ao exportar: {str(e)}")
 
+
+
+def get_tv_info():
+    info = {
+        'modelo': 'Modelo Desconhecido',
+        'marca': 'Marca Desconhecida',
+        'serial': 'N/A',
+        'resolution': 'N/A',
+        'refresh_rate': 'N/A'
+    }
+    try:
+        c = wmi.WMI()
+        # Resolução e Refresh Rate da TV (Monitor externo ou principal)
+        res_width = ""
+        res_height = ""
+        refresh = ""
+        for gpu in c.Win32_VideoController():
+            if gpu.CurrentHorizontalResolution and gpu.CurrentVerticalResolution:
+                 res_width = gpu.CurrentHorizontalResolution
+                 res_height = gpu.CurrentVerticalResolution
+                 refresh = gpu.CurrentRefreshRate or "60"
+                 # Break on first found
+                 break
+                 
+        if res_width and res_height:
+            info['resolution'] = f"{res_width}x{res_height}"
+            
+        if refresh:
+            info['refresh_rate'] = f"{refresh} Hz"
+            
+        # Marca, Modelo e Serial
+        try:
+            cw = wmi.WMI(namespace="root\\wmi")
+            # Vai iterar os monitores
+            for m in cw.WmiMonitorID():
+                if m.Active:
+                    user_friendly = "".join([chr(char) for char in m.UserFriendlyName if char != 0]) if m.UserFriendlyName else ""
+                    manufacturer = "".join([chr(char) for char in m.ManufacturerName if char != 0]) if m.ManufacturerName else ""
+                    product = "".join([chr(char) for char in m.ProductCodeID if char != 0]) if m.ProductCodeID else ""
+                    serial = "".join([chr(char) for char in m.SerialNumberID if char != 0]) if m.SerialNumberID else ""
+                    
+                    if user_friendly:
+                        info['modelo'] = user_friendly
+                    elif product:
+                        info['modelo'] = product
+                        
+                    if manufacturer:
+                        info['marca'] = manufacturer
+                        
+                    if serial:
+                        info['serial'] = serial
+                    break # Pega primeiro ativo
+        except Exception as e:
+            print("WmiMonitorID err:", e)
+
+    except Exception as e:
+        info['error'] = str(e)
+        return None
+    return info
+
+def gerar_relatorio_tv_logic(sys_info, usuario, compra_num, portas, testes, danos):
+    """Gera o HTML para a TV e salva no Excel"""
+    
+    foto_user = f"{usuario.lower()}.jpg"
+    
+    portas_html = "".join([f"<tr><th>{k}</th><td>{v}</td></tr>" for k,v in portas.items() if v > 0])
+    if not portas_html:
+         portas_html = "<tr><th>Nenhuma porta selecionada</th><td>-</td></tr>"
+         
+    testes_html = "".join([f"<tr><td>{k}</td><td class='{'pass' if v else 'fail'}'>{'APROVADO' if v else 'REPROVADO'}</td></tr>" for k,v in testes.items()])
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Relatório Monitor/TV {sys_info.get('marca', '')} {sys_info.get('modelo', 'TV')}</title>
+        <style>
+            body {{ font-family: 'Segoe UI', sans-serif; margin: 0; background: #f4f7f6; color: #333; }}
+            .container {{ max-width: 800px; margin: 40px auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }}
+            .header {{ display: flex; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 20px; margin-bottom: 30px; }}
+            .header img {{ width: 80px; height: 80px; border-radius: 50%; object-fit: cover; margin-right: 20px; border: 3px solid #eee; }}
+            .header h1 {{ margin: 0; font-size: 24px; color: #2c3e50; }}
+            .header p {{ margin: 5px 0 0; color: #7f8c8d; }}
+            h2 {{ color: #e67e22; font-size: 18px; border-left: 4px solid #e67e22; padding-left: 10px; margin-top: 30px; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }}
+            th, td {{ padding: 12px 15px; border-bottom: 1px solid #eee; text-align: left; }}
+            th {{ background-color: #f8f9fa; color: #2c3e50; font-weight: 600; }}
+            .pass {{ color: #27ae60; font-weight: bold; }}
+            .fail {{ color: #e74c3c; font-weight: bold; }}
+            .notes {{ background: #fff8e1; padding: 20px; border-radius: 8px; border-left: 4px solid #ffc107; margin-top: 15px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <img src="{foto_user}" onerror="this.src='https://ui-avatars.com/api/?name={usuario}&background=random'">
+                <div>
+                    <h1>Relatório Técnico Monitor/TV</h1>
+                    <p>Técnico: <strong>{usuario}</strong> &bull; {datetime.datetime.now().strftime("%d/%m/%Y")}</p>
+                </div>
+            </div>
+
+            <h2>📦 Identificação do Equipamento</h2>
+            <table>
+                <tr><th width="30%">Ref. Compra</th><td>{compra_num}</td></tr>
+                <tr><th>Marca / Modelo</th><td><strong>{sys_info.get('marca', 'N/A')} {sys_info.get('modelo', 'N/A')}</strong></td></tr>
+                <tr><th>Serial Number</th><td>{sys_info.get('serial', 'N/A')}</td></tr>
+            </table>
+
+            <h2>🖥️ Especificações do Ecrã</h2>
+            <table>
+                <tr><th width="30%">Resolução</th><td>{sys_info.get('resolution', 'N/A')}</td></tr>
+                <tr><th>Taxa Atualização</th><td>{sys_info.get('refresh_rate', 'N/A')}</td></tr>
+            </table>
+
+            <h2>🔌 Portas de Vídeo / Conexões (Qtd)</h2>
+            <table>
+                {portas_html}
+            </table>
+
+            <h2>✅ Resultados dos Testes</h2>
+            <table>
+                {testes_html}
+            </table>
+
+            <h2>📝 Observações</h2>
+            <div class="notes">
+                {danos.replace('\\n', '<br>') if danos and danos.strip() else "Nenhuma anomalia visual detetada. Equipamento em condições normais."}
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    safe_serial = "".join([c for c in sys_info.get('serial', 'SN') if c.isalnum()]).strip()
+    if not safe_serial: safe_serial = "TV"
+    default_filename = f"TV_{safe_serial}.html"
+    
+    file_path = filedialog.asksaveasfilename(
+        defaultextension=".html",
+        filetypes=[("Ficheiros HTML", "*.html")],
+        initialfile=default_filename,
+        title="Guardar Relatório Como..."
+    )
+    
+    if not file_path: return
+
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
+            
+        webbrowser.open('file://' + os.path.realpath(file_path))
+        
+        # Salvar Excel
+        if guardar_em_excel_tv(usuario, compra_num, sys_info, portas, testes, danos):
+            messagebox.showinfo("Sucesso", "O Teste de TV foi guardado com sucesso!")
+        else:
+            messagebox.showwarning("Atenção", "Relatório HTML gerado, mas erro ao salvar no Excel.")
+            
+    except Exception as e:
+        messagebox.showerror("Erro", f"Falha ao gravar: {e}")
+
+def guardar_em_excel_tv(usuario, compra_num, sys_info, portas, testes, danos):
+    try:
+        registo = {
+            "Data": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "Técnico": usuario,
+            "Nº Compra": compra_num,
+            "Marca": sys_info.get('marca', 'N/A'),
+            "Modelo": sys_info.get('modelo', 'N/A'),
+            "Serial": sys_info.get('serial', 'N/A'),
+            "Resolução": sys_info.get('resolution', 'N/A'),
+            "Refresh": sys_info.get('refresh_rate', 'N/A'),
+            "DisplayPort": portas.get("DisplayPort", 0),
+            "HDMI": portas.get("HDMI", 0),
+            "DVI": portas.get("DVI", 0),
+            "VGA": portas.get("VGA", 0),
+            "RS232": portas.get("RS232", 0),
+            "USB": portas.get("USB", 0),
+            "USB A": portas.get("USB A", 0),
+            "USB C": portas.get("USB C", 0),
+            "Ecrã / Imagem": "✓" if testes.get("Ecrã / Imagem") else "✗",
+            "Touch Screen": "✓" if testes.get("Touch Screen") else "✗",
+            "Colunas": "✓" if testes.get("Colunas") else "✗",
+            "Cabos / Energia": "✓" if testes.get("Cabos / Energia") else "✗",
+            "Botões": "✓" if testes.get("Botões") else "✗",
+            "Comando (Remote)": "✓" if testes.get("Comando (Remote)") else "✗",
+            "Webcam": "✓" if testes.get("Webcam") else "✗",
+            "Notas": danos.strip() if danos.strip() else "Sem observações"
+        }
+        
+        if os.path.exists(EXCEL_FILE_TV):
+             df_exist = pd.read_excel(EXCEL_FILE_TV)
+             df = pd.concat([df_exist, pd.DataFrame([registo])], ignore_index=True)
+        else:
+             df = pd.DataFrame([registo])
+             
+        cols_order = [
+            "Data", "Técnico", "Nº Compra", "Marca", "Modelo", "Serial", "Resolução", "Refresh",
+            "DisplayPort", "HDMI", "DVI", "VGA", "RS232", "USB", "USB A", "USB C",
+            "Ecrã / Imagem", "Touch Screen", "Colunas", "Cabos / Energia", "Botões", "Comando (Remote)", "Webcam", "Notas"
+        ]
+        
+        for col in cols_order:
+            if col not in df.columns:
+                df[col] = "N/A"
+                
+        df = df[cols_order]
+             
+        df.to_excel(EXCEL_FILE_TV, index=False, sheet_name="RegistosTV")
+        formatar_excel_tv(EXCEL_FILE_TV)
+        return True
+    except Exception as e:
+        print("Erro Excel TV:", e)
+        return False
+
+def formatar_excel_tv(filepath):
+    """Aplica formatação moderna ao ficheiro Excel de TVs"""
+    try:
+        wb = load_workbook(filepath)
+        ws = wb.active
+        
+        header_fill = PatternFill(start_color="e67e22", end_color="e67e22", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        
+        alt_fill = PatternFill(start_color="FDEBD0", end_color="FDEBD0", fill_type="solid")
+        white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+        
+        thin_border = Border(left=Side(style='thin', color='E59866'), right=Side(style='thin', color='E59866'),
+                             top=Side(style='thin', color='E59866'), bottom=Side(style='thin', color='E59866'))
+        
+        center_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        left_alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_alignment
+            cell.border = thin_border
+        
+        ws.row_dimensions[1].height = 25
+        
+        for row_idx, row in enumerate(ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=ws.max_column), 2):
+            fill = alt_fill if (row_idx % 2 == 0) else white_fill
+            
+            for col_idx, cell in enumerate(row, 1):
+                cell.fill = fill
+                cell.border = thin_border
+                
+                # Alinhar colunas numéricas de pt/testes
+                # 9 ao 16 são portas (DisplayPort até USB C)
+                # 17 ao 23 são testes (Ecrã / Imagem até Webcam)
+                if col_idx >= 9 and col_idx <= 23: 
+                    cell.alignment = center_alignment
+                    cell.font = Font(size=12, bold=True)
+                    if cell.value == "✓": cell.font = Font(size=12, bold=True, color="00B050")
+                    elif cell.value == "✗": cell.font = Font(size=12, bold=True, color="C00000")
+                else:
+                    cell.alignment = left_alignment
+                    cell.font = Font(size=10)
+                
+                ws.row_dimensions[row_idx].height = 20
+        
+        column_widths = {
+            'A': 16, 'B': 12, 'C': 14, 'D': 15, 'E': 20, 'F': 18, 'G': 12, 'H': 10,
+            'I': 10, 'J': 8,  'K': 8,  'L': 8,  'M': 8,  'N': 8,  'O': 8,  'P': 8,
+            'Q': 14, 'R': 14, 'S': 8,  'T': 14, 'U': 8,  'V': 16, 'W': 10, 'X': 30
+        }
+        for col_letter, width in column_widths.items():
+            ws.column_dimensions[col_letter].width = width
+        
+        ws.freeze_panes = "A2"
+        wb.save(filepath)
+        return True
+    except Exception as e:
+        print(f"Erro ao formatar Excel TV: {e}")
+        return False
 
 if __name__ == "__main__":
     app = App()
