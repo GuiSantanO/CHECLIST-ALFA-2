@@ -19,12 +19,12 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")  # Pode ser "blue" (padrão), "green", "dark-blue"
 
-# Cores Personalizadas (Hex)
-COLOR_CARD = "#2b2b2b"     # Fundo dos Cartões/Frames
-COLOR_ACCENT = "#2cc985"   # Verde Neon (Ações Principais)
-COLOR_TEXT = "#ffffff"     # Texto Principal
-COLOR_TEXT_DIM = "#a0a0a0" # Texto Secundário
-COLOR_INFO = "#3498db"     # Azul Informação
+# Cores Personalizadas (Hex) - JANS-it Theme
+COLOR_CARD = "#151515"     # Fundo dos Cartões/Frames (Quase preto)
+COLOR_ACCENT = "#ff0000"   # Vermelho JANS-it (Ações Principais)
+COLOR_TEXT = "#ffffff"     # Texto Principal (Branco)
+COLOR_TEXT_DIM = "#b3b3b3" # Texto Secundário (Cinzento Claro)
+COLOR_INFO = "#333333"     # Cinza Escuro (Botões Secundários)
 PASSWORD_REGISTOS = "picanha2026" # Senha para acessar registos
 
 # --- CONFIGURAÇÃO DE DIRETÓRIOS ---
@@ -91,26 +91,73 @@ class App(ctk.CTk):
         if "ChecklistFrame" in self.frames:
             self.frames["ChecklistFrame"].update_hardware_info()
 
-    def show_frame(self, page_name):
-        """Alterna entre telas com uma transição simples"""
-        # Destrói o frame atual (limpeza simples para evitar sobreposição de estados)
-        if self.current_frame:
-            self.current_frame.pack_forget()
-            
+    def show_frame(self, page_name, direction="left"):
+        """Alterna entre telas com uma transição suave de deslizar (slide)"""
+        old_frame = self.current_frame
+        
         # Cria a nova tela se ainda não existir ou recria para resetar
         if page_name == "MenuPrincipal":
-            self.current_frame = MenuPrincipal(self.container, self)
+            new_frame = MenuPrincipal(self.container, self)
         elif page_name == "ChecklistFrame":
-            self.current_frame = ChecklistFrame(self.container, self)
+            new_frame = ChecklistFrame(self.container, self)
         elif page_name == "ChecklistTVFrame":
-            self.current_frame = ChecklistTVFrame(self.container, self)
+            new_frame = ChecklistTVFrame(self.container, self)
         elif page_name == "RegistosFrame":
-            self.current_frame = RegistosFrame(self.container, self)
+            new_frame = RegistosFrame(self.container, self)
         elif page_name == "RegistosTVFrame":
-            self.current_frame = RegistosTVFrame(self.container, self)
+            new_frame = RegistosTVFrame(self.container, self)
+        else:
+            return
+
+        self.current_frame = new_frame
         
-        if self.current_frame:
-            self.current_frame.pack(fill="both", expand=True)
+        # Se for o primeiro frame a abrir (sem transição)
+        if not old_frame:
+            new_frame.place(relwidth=1, relheight=1, relx=0, rely=0)
+            return
+
+        # Configurar posições iniciais para animação
+        start_x = 1.0 if direction == "left" else -1.0
+        end_x = -1.0 if direction == "left" else 1.0
+        
+        new_frame.place(relwidth=1, relheight=1, relx=start_x, rely=0)
+        
+        # Iniciar loop de animação
+        self.animate_transition(old_frame, new_frame, current_x=0.0, target_x=end_x, new_start_x=start_x)
+
+    def animate_transition(self, old_frame, new_frame, current_x, target_x, new_start_x):
+        """Atualiza iterativamente as coordenadas X com atenuação (Ease-Out) para um deslize suave"""
+        # Calcular distância restante para atenuar a velocidade
+        distance = abs(target_x - current_x)
+        
+        # O passo (step) diminui conforme a janela se aproxima do destino final, 
+        # com um mínimo de 0.015 para garantir que a animação não para.
+        step = max(distance * 0.15, 0.015)
+        
+        # Calcula direção do movimento
+        moving_left = target_x < 0
+        
+        if moving_left:
+            next_x = current_x - step
+            new_x = new_start_x - step
+        else:
+            next_x = current_x + step
+            new_x = new_start_x + step
+            
+        # Verifica se a animação terminou
+        finished = (moving_left and next_x <= target_x) or (not moving_left and next_x >= target_x)
+        
+        if finished:
+            new_frame.place(relx=0, rely=0)
+            old_frame.place_forget()
+            old_frame.destroy()
+        else:
+            old_frame.place(relx=next_x, rely=0)
+            new_frame.place(relx=new_x, rely=0)
+            new_start_x = new_x
+            current_x = next_x
+            # Agenda o próximo frame da animação (15ms ~ 60fps constantes)
+            self.after(15, self.animate_transition, old_frame, new_frame, current_x, target_x, new_start_x)
 
 # --- TELAS ---
 
@@ -131,22 +178,22 @@ class MenuPrincipal(ctk.CTkFrame):
                     font=("Roboto", 14), text_color=COLOR_TEXT_DIM).pack(pady=(0, 40))
         
         # Botões (Cartões Grandes)
-        self.create_menu_button("💻  NOVA CHECKLIST PC", COLOR_ACCENT, 
+        self.create_menu_button("🖥️  NOVA CHECKLIST PC", COLOR_ACCENT, 
                               lambda: controller.show_frame("ChecklistFrame"))
                               
-        self.create_menu_button("📺  NOVA CHECKLIST TV", "#2980b9", 
+        self.create_menu_button("📺  NOVA CHECKLIST TV", COLOR_ACCENT, 
                               lambda: controller.show_frame("ChecklistTVFrame"))
         
-        self.create_menu_button("📂  ABRIR REGISTOS PC", COLOR_INFO, 
+        self.create_menu_button("🗂️  ABRIR REGISTOS PC", "#3498db", 
                               self.check_password_registos)
                               
-        self.create_menu_button("📂  ABRIR REGISTOS TV", "#1abc9c", 
+        self.create_menu_button("🗂️  ABRIR REGISTOS TV", "#1abc9c", 
                               self.check_password_registos_tv)
         
-        self.create_menu_button("⚠️  EXPORTAR DANOS", "#e67e22", 
+        self.create_menu_button("🔍  EXPORTAR DANOS", "#e67e22", 
                               exportar_danos_ui)
         
-        self.create_menu_button("📄  EXPORTAR COMPRA (PDF)", "#8e44ad", 
+        self.create_menu_button("📊  EXPORTAR COMPRA (PDF)", "#8e44ad", 
                               exportar_compra_pdf_ui)
 
         # Rodapé
@@ -155,17 +202,47 @@ class MenuPrincipal(ctk.CTkFrame):
                     font=("Roboto", 10), text_color=COLOR_TEXT_DIM).pack(side="bottom", pady=20)
 
     def create_menu_button(self, text, color, command):
-        btn = ctk.CTkButton(self.center_frame, text=text, command=command,
+        # Separar o ícone do texto para estilizar cores independentemente
+        partes = text.split("  ", 1)
+        icon = partes[0]
+        label_text = partes[1] if len(partes) > 1 else text
+
+        btn = ctk.CTkButton(self.center_frame, text="", command=command,
                            fg_color="transparent", border_width=2, border_color=color,
-                           text_color=color, hover_color=color,
-                           font=("Roboto Medium", 14), height=50, width=300,
-                           corner_radius=25) # Botão arredondado ("Pílula")
+                           hover_color=color, height=50, width=300,
+                           corner_radius=25) # Botão arredondado
         btn.pack(pady=10)
-        # Hack para mudar cor do texto no hover (simulado, CTkButton nativo já lida bem com isso)
-        def on_enter(e): btn.configure(text_color="#ffffff")
-        def on_leave(e): btn.configure(text_color=color)
+        
+        # Rótulo de Ícone (mantém a sua cor de emoji nativa do SO)
+        lbl_icon = ctk.CTkLabel(btn, text=icon, font=("Segoe UI Emoji", 18), fg_color="transparent")
+        lbl_icon.place(relx=0.15, rely=0.5, anchor="center")
+        
+        # Rótulo do Texto (sempre branco brilhante para contraste máximo contra #151515)
+        lbl_text = ctk.CTkLabel(btn, text=label_text, text_color="#ffffff", font=("Roboto Medium", 14), fg_color="transparent")
+        lbl_text.place(relx=0.25, rely=0.5, anchor="w")
+        
+        # Sincronizar Animação de Hover e Cliques pelas Camadas
+        def on_enter(e): 
+            btn.configure(fg_color=color)
+            lbl_icon.configure(fg_color=color)
+            lbl_text.configure(fg_color=color)
+        def on_leave(e): 
+            btn.configure(fg_color="transparent")
+            lbl_icon.configure(fg_color="transparent")
+            lbl_text.configure(fg_color="transparent")
+        def on_click(e):
+            command()
+            
         btn.bind("<Enter>", on_enter)
         btn.bind("<Leave>", on_leave)
+        
+        lbl_icon.bind("<Enter>", on_enter)
+        lbl_icon.bind("<Leave>", on_leave)
+        lbl_icon.bind("<Button-1>", on_click)
+        
+        lbl_text.bind("<Enter>", on_enter)
+        lbl_text.bind("<Leave>", on_leave)
+        lbl_text.bind("<Button-1>", on_click)
 
     def _ask_password(self, title):
         """Custom dialog para perguntar password com censura '*' """
@@ -243,7 +320,7 @@ class ChecklistFrame(ctk.CTkFrame):
         top_bar = ctk.CTkFrame(self, fg_color=COLOR_CARD, height=60, corner_radius=0)
         top_bar.pack(fill="x", side="top")
         
-        ctk.CTkButton(top_bar, text="⬅ Voltar", command=lambda: controller.show_frame("MenuPrincipal"),
+        ctk.CTkButton(top_bar, text="⬅ Voltar", command=lambda: controller.show_frame("MenuPrincipal", direction="right"),
                      fg_color="transparent", text_color=COLOR_TEXT, width=80).pack(side="left", padx=10)
         
         ctk.CTkLabel(top_bar, text="NOVO RELATÓRIO", font=("Roboto Medium", 18)).pack(side="left", padx=20)
@@ -333,7 +410,7 @@ class ChecklistFrame(ctk.CTkFrame):
 
         # --- BOTÃO AÇÃO ---
         self.btn_save = ctk.CTkButton(self.scroll, text="GERAR RELATÓRIO E GUARDAR", 
-                                     fg_color=COLOR_ACCENT, hover_color="#27ae60",
+                                     fg_color=COLOR_ACCENT, hover_color="#cc0000",
                                      height=50, font=("Roboto Medium", 14),
                                      command=self.gerar_relatorio)
         self.btn_save.pack(fill="x", pady=20)
@@ -458,7 +535,7 @@ class ChecklistTVFrame(ctk.CTkFrame):
         top_bar = ctk.CTkFrame(self, fg_color=COLOR_CARD, height=60, corner_radius=0)
         top_bar.pack(fill="x", side="top")
         
-        ctk.CTkButton(top_bar, text="⬅ Voltar", command=lambda: controller.show_frame("MenuPrincipal"),
+        ctk.CTkButton(top_bar, text="⬅ Voltar", command=lambda: controller.show_frame("MenuPrincipal", direction="right"),
                      fg_color="transparent", text_color=COLOR_TEXT, width=80).pack(side="left", padx=10)
         
         ctk.CTkLabel(top_bar, text="NOVO RELATÓRIO TV", font=("Roboto Medium", 18)).pack(side="left", padx=20)
@@ -560,7 +637,7 @@ class ChecklistTVFrame(ctk.CTkFrame):
 
         # --- BOTÃO AÇÃO ---
         self.btn_save = ctk.CTkButton(self.scroll, text="GERAR RELATÓRIO E GUARDAR", 
-                                     fg_color=COLOR_ACCENT, hover_color="#27ae60",
+                                     fg_color=COLOR_ACCENT, hover_color="#cc0000",
                                      height=50, font=("Roboto Medium", 14),
                                      command=self.gerar_relatorio)
         self.btn_save.pack(fill="x", pady=20)
@@ -671,7 +748,7 @@ class RegistosFrame(ctk.CTkFrame):
         top_bar = ctk.CTkFrame(self, fg_color=COLOR_CARD, height=60, corner_radius=0)
         top_bar.pack(fill="x", side="top")
         
-        ctk.CTkButton(top_bar, text="⬅ Voltar", command=lambda: controller.show_frame("MenuPrincipal"),
+        ctk.CTkButton(top_bar, text="⬅ Voltar", command=lambda: controller.show_frame("MenuPrincipal", direction="right"),
                      fg_color="transparent", text_color=COLOR_TEXT, width=80).pack(side="left", padx=10)
         
         ctk.CTkLabel(top_bar, text="REGISTOS DE CHECKLIST", font=("Roboto Medium", 18)).pack(side="left", padx=20)
@@ -745,7 +822,7 @@ class RegistosFrame(ctk.CTkFrame):
         self.editor_scroll.pack(fill="both", expand=True, padx=10, pady=5)
         
         self.btn_save = ctk.CTkButton(self.editor_frame, text="GUARDAR ALTERAÇÕES", 
-                                     fg_color=COLOR_ACCENT, hover_color="#27ae60",
+                                     fg_color=COLOR_ACCENT, hover_color="#cc0000",
                                      command=self.save_edits)
         self.btn_save.pack(pady=15, padx=10, fill="x")
         
@@ -952,7 +1029,7 @@ class RegistosTVFrame(ctk.CTkFrame):
         top_bar = ctk.CTkFrame(self, fg_color=COLOR_CARD, height=60, corner_radius=0)
         top_bar.pack(fill="x", side="top")
         
-        ctk.CTkButton(top_bar, text="⬅ Voltar", command=lambda: controller.show_frame("MenuPrincipal"),
+        ctk.CTkButton(top_bar, text="⬅ Voltar", command=lambda: controller.show_frame("MenuPrincipal", direction="right"),
                      fg_color="transparent", text_color=COLOR_TEXT, width=80).pack(side="left", padx=10)
         
         ctk.CTkLabel(top_bar, text="REGISTOS DE TVs", font=("Roboto Medium", 18)).pack(side="left", padx=20)
@@ -1018,7 +1095,7 @@ class RegistosTVFrame(ctk.CTkFrame):
         self.editor_scroll.pack(fill="both", expand=True, padx=10, pady=5)
         
         self.btn_save = ctk.CTkButton(self.editor_frame, text="GUARDAR ALTERAÇÕES", 
-                                     fg_color=COLOR_ACCENT, hover_color="#27ae60",
+                                     fg_color=COLOR_ACCENT, hover_color="#cc0000",
                                      command=self.save_edits)
         self.btn_save.pack(pady=15, padx=10, fill="x")
         
@@ -1507,11 +1584,11 @@ def formatar_excel(filepath):
         ws = wb.active
         
         # Definir estilos
-        header_fill = PatternFill(start_color="2E75B6", end_color="2E75B6", fill_type="solid")
+        header_fill = PatternFill(start_color="CC0000", end_color="CC0000", fill_type="solid") # Vermelho JANS-it
         header_font = Font(bold=True, color="FFFFFF", size=11)
         header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         
-        alt_fill = PatternFill(start_color="D9E9F7", end_color="D9E9F7", fill_type="solid")
+        alt_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
         white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
         
         thin_border = Border(
@@ -1605,7 +1682,7 @@ def formatar_excel_danos(filepath):
         ws = wb.active
         
         # Estilos
-        header_fill = PatternFill(start_color="E67E22", end_color="E67E22", fill_type="solid") # Laranja
+        header_fill = PatternFill(start_color="333333", end_color="333333", fill_type="solid") # Dark Grey
         header_font = Font(bold=True, color="FFFFFF", size=12)
         header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         
@@ -1736,8 +1813,8 @@ def formatar_excel_compra_pdf(filepath):
         # Ocultar linhas de grelha
         ws.sheet_view.showGridLines = False
         
-        header_fill_pc = PatternFill(start_color="8E44AD", end_color="8E44AD", fill_type="solid") # Roxo
-        header_fill_tv = PatternFill(start_color="E67E22", end_color="E67E22", fill_type="solid") # Laranja
+        header_fill_pc = PatternFill(start_color="CC0000", end_color="CC0000", fill_type="solid") # Red
+        header_fill_tv = PatternFill(start_color="333333", end_color="333333", fill_type="solid") # Dark Grey
         header_font = Font(bold=True, color="FFFFFF", size=11)
         title_font = Font(bold=True, color="333333", size=14)
         
@@ -2192,11 +2269,11 @@ def formatar_excel_tv(filepath):
         wb = load_workbook(filepath)
         ws = wb.active
         
-        header_fill = PatternFill(start_color="e67e22", end_color="e67e22", fill_type="solid")
+        header_fill = PatternFill(start_color="333333", end_color="333333", fill_type="solid")
         header_font = Font(bold=True, color="FFFFFF", size=11)
         header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         
-        alt_fill = PatternFill(start_color="FDEBD0", end_color="FDEBD0", fill_type="solid")
+        alt_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
         white_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
         
         thin_border = Border(left=Side(style='thin', color='E59866'), right=Side(style='thin', color='E59866'),
