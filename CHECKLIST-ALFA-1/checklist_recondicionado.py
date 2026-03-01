@@ -1224,6 +1224,15 @@ def get_system_info():
                 # 21, 22, 23, 24 represent specifically soldered form factors: BGA, FB-DIMM, etc.
                 if mem_stick.FormFactor in [21, 22, 23, 24]:
                     has_soldered = True
+                else:
+                    # OEMs frequently misreport soldered RAM as FormFactor 12. 
+                    # Scan strings for explicit OEM labels
+                    locator = str(getattr(mem_stick, 'DeviceLocator', '')).lower()
+                    part = str(getattr(mem_stick, 'PartNumber', '')).lower()
+                    if any(kw in locator for kw in ['onboard', 'on board', 'soldered', 'bga']):
+                        has_soldered = True
+                    elif any(kw in part for kw in ['onboard', 'on board', 'soldered', 'bga']):
+                        has_soldered = True
                     
             ram_gb = round(total_ram / (1024**3))
             
