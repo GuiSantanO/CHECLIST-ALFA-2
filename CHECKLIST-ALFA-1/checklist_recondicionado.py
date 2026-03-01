@@ -167,10 +167,58 @@ class MenuPrincipal(ctk.CTkFrame):
         btn.bind("<Enter>", on_enter)
         btn.bind("<Leave>", on_leave)
 
+    def _ask_password(self, title):
+        """Custom dialog para perguntar password com censura '*' """
+        dialog = ctk.CTkToplevel(self)
+        dialog.title(title)
+        dialog.geometry("400x200")
+        dialog.resizable(False, False)
+        dialog.attributes("-topmost", True)
+        
+        # Tentar centrar o dialog
+        dialog.update_idletasks()
+        try:
+            x = self.winfo_rootx() + (self.winfo_width() // 2) - 200
+            y = self.winfo_rooty() + (self.winfo_height() // 2) - 100
+            dialog.geometry(f"+{x}+{y}")
+        except: pass
+        
+        dialog.grab_set()
+        
+        password = [None]
+        
+        lbl = ctk.CTkLabel(dialog, text="Digite a palavra-passe de administrador:", font=("Roboto", 14))
+        lbl.pack(pady=(30, 10))
+        
+        entry = ctk.CTkEntry(dialog, show="*", width=250, font=("Roboto", 14))
+        entry.pack(pady=(0, 20))
+        entry.focus()
+        
+        def on_ok(_=None):
+            password[0] = entry.get()
+            dialog.destroy()
+            
+        def on_cancel(_=None):
+            dialog.destroy()
+            
+        entry.bind("<Return>", on_ok)
+        entry.bind("<Escape>", on_cancel)
+        
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack()
+        
+        btn_ok = ctk.CTkButton(btn_frame, text="OK", width=100, command=on_ok)
+        btn_ok.pack(side="left", padx=10)
+        
+        btn_cancel = ctk.CTkButton(btn_frame, text="Cancelar", width=100, fg_color="#e74c3c", hover_color="#c0392b", command=on_cancel)
+        btn_cancel.pack(side="right", padx=10)
+        
+        dialog.wait_window()
+        return password[0]
+
     def check_password_registos(self):
         """Solicita senha antes de abrir os registos"""
-        dialog = ctk.CTkInputDialog(text="Digite a palavra-passe de administrador:", title="Acesso Restrito")
-        password = dialog.get_input()
+        password = self._ask_password("Acesso Restrito")
         
         if password == PASSWORD_REGISTOS:
             self.controller.show_frame("RegistosFrame")
@@ -179,8 +227,7 @@ class MenuPrincipal(ctk.CTkFrame):
 
     def check_password_registos_tv(self):
         """Solicita senha antes de abrir os registos de TV"""
-        dialog = ctk.CTkInputDialog(text="Digite a palavra-passe de administrador:", title="Acesso Restrito (TVs)")
-        password = dialog.get_input()
+        password = self._ask_password("Acesso Restrito (TVs)")
         
         if password == PASSWORD_REGISTOS:
             self.controller.show_frame("RegistosTVFrame")
@@ -231,17 +278,7 @@ class ChecklistFrame(ctk.CTkFrame):
         
         self.update_hardware_info()
         
-        # Detalhes de Memória adicionais
-        self.ram_frame = ctk.CTkFrame(self.hw_frame, fg_color="transparent")
-        self.ram_frame.pack(fill="x", padx=20, pady=(0, 15))
-        
-        ctk.CTkLabel(self.ram_frame, text="Tipo Memória:", font=("Roboto", 12)).pack(side="left", padx=(0, 10))
-        self.ram_type = ctk.CTkOptionMenu(self.ram_frame, values=["DIMM", "Onboard", "Mista"], width=100)
-        self.ram_type.pack(side="left", padx=(0, 20))
-        
-        ctk.CTkLabel(self.ram_frame, text="Config. (Ex: 2x 8GB):", font=("Roboto", 12)).pack(side="left", padx=(0, 10))
-        self.entry_ram_config = ctk.CTkEntry(self.ram_frame, width=150)
-        self.entry_ram_config.pack(side="left")
+        # Detalhes de Memória adicionais removidos devido à deteção nativa mais inteligente
         
         # --- SEÇÃO 3: COMPRA ---
         self.add_section_header("3. Referência de Compra")
@@ -388,14 +425,10 @@ class ChecklistFrame(ctk.CTkFrame):
             
         danos = self.text_notes.get("1.0", "end-1c")
         
-        # Detalhes RAM
-        ram_type = self.ram_type.get()
-        ram_config = self.entry_ram_config.get()
-        ram_details = {
-            "type": ram_type,
-            "config": ram_config
-        }
-        
+        if getattr(self.controller, 'sys_info', None) is None:
+            messagebox.showerror("Aviso", "Aguarde a deteção do hardware.")
+            return
+            
         testes = {name: var.get() for name, var in self.test_vars.items()}
         
         # Mapeamento de nomes para o Excel/HTML (para compatibilidade com código antigo)
@@ -414,7 +447,7 @@ class ChecklistFrame(ctk.CTkFrame):
         }
         
         # Chaman lógica de geração (reutilizando função externa refatorada ou movida)
-        gerar_relatorio_logic(self.controller.sys_info, usuario, compra_num, testes_mapped, danos, ram_details)
+        gerar_relatorio_logic(self.controller.sys_info, usuario, compra_num, testes_mapped, danos)
 
 class ChecklistTVFrame(ctk.CTkFrame):
     def __init__(self, parent, controller):
@@ -731,6 +764,8 @@ class RegistosFrame(ctk.CTkFrame):
              
         try:
              self.df = pd.read_excel(EXCEL_FILE)
+             if 'Tipo RAM' in self.df.columns: self.df = self.df.drop(columns=['Tipo RAM'])
+             if 'Config RAM' in self.df.columns: self.df = self.df.drop(columns=['Config RAM'])
              self.apply_filters()
              self.create_editor_fields()
         except Exception as e:
@@ -1213,36 +1248,36 @@ def get_system_info():
         try:
             total_ram = 0
             stick_specs = []
-            has_soldered = False
             for mem_stick in c.Win32_PhysicalMemory():
                 cap_gb = round(int(mem_stick.Capacity) / (1024**3))
                 total_ram += int(mem_stick.Capacity)
                 
-                speed_str = f"{mem_stick.Speed} MT/s" if mem_stick.Speed else ""
-                stick_specs.append(f"{cap_gb}GB {speed_str}".strip())
+                speed_str = f" {mem_stick.Speed} MT/s" if mem_stick.Speed else ""
                 
                 # Check FormFactor for soldered RAM types
                 # 12 commonly SODIMM (sometimes soldered in modern ultra-thins but not guaranteed)
                 # 21, 22, 23, 24 represent specifically soldered form factors: BGA, FB-DIMM, etc.
+                is_soldered = False
                 if mem_stick.FormFactor in [21, 22, 23, 24]:
-                    has_soldered = True
+                    is_soldered = True
                 else:
                     # OEMs frequently misreport soldered RAM as FormFactor 12. 
                     # Scan strings for explicit OEM labels
                     locator = str(getattr(mem_stick, 'DeviceLocator', '')).lower()
                     part = str(getattr(mem_stick, 'PartNumber', '')).lower()
                     if any(kw in locator for kw in ['onboard', 'on board', 'soldered', 'bga']):
-                        has_soldered = True
+                        is_soldered = True
                     elif any(kw in part for kw in ['onboard', 'on board', 'soldered', 'bga']):
-                        has_soldered = True
+                        is_soldered = True
+                        
+                soldered_str = " [Soldada]" if is_soldered else ""
+                stick_specs.append(f"{cap_gb}GB{speed_str}{soldered_str}".strip())
                     
             ram_gb = round(total_ram / (1024**3))
             
             ram_str = f"{ram_gb} GB"
             if stick_specs:
                 ram_str += f" ({' + '.join(stick_specs)})"
-            if has_soldered:
-                ram_str += " [Soldada]"
                 
             info['ram'] = ram_str
                 
@@ -1289,7 +1324,7 @@ def get_system_info():
         return None
     return info
 
-def gerar_relatorio_logic(sys_info, usuario, compra_num, testes, danos, ram_details=None):
+def gerar_relatorio_logic(sys_info, usuario, compra_num, testes, danos):
     """Gera o HTML e salva no Excel"""
     
     # HTML Content (Design Melhorado)
@@ -1335,7 +1370,7 @@ def gerar_relatorio_logic(sys_info, usuario, compra_num, testes, danos, ram_deta
             <h2>⚙️ Especificações Técnicas</h2>
             <table>
                 <tr><th width="30%">Processador</th><td>{sys_info.get('cpu', 'N/A')}</td></tr>
-                <tr><th>Memória RAM</th><td>{sys_info.get('ram', 'N/A')} <span style="font-size: 0.9em; color: #666;">({ram_details.get('type', '')} - {ram_details.get('config', '')})</span></td></tr>
+                <tr><th>Memória RAM</th><td>{sys_info.get('ram', 'N/A')}</td></tr>
                 <tr><th>Armazenamento</th><td>{sys_info.get('disk', 'N/A')}</td></tr>
                 <tr><th>Gráfica</th><td>{sys_info.get('gpu', 'N/A')}</td></tr>
                 <tr><th>Ecrã (Resolução)</th><td>{sys_info.get('resolution', 'N/A')}</td></tr>
@@ -1376,7 +1411,7 @@ def gerar_relatorio_logic(sys_info, usuario, compra_num, testes, danos, ram_deta
         webbrowser.open('file://' + os.path.realpath(file_path))
         
         # Salvar Excel
-        if guardar_em_excel(usuario, compra_num, sys_info, testes, danos, ram_details):
+        if guardar_em_excel(usuario, compra_num, sys_info, testes, danos):
             messagebox.showinfo("Sucesso", "Processo concluído com sucesso!")
         else:
             messagebox.showwarning("Atenção", "Relatório HTML gerado, mas erro ao salvar no Excel.")
@@ -1406,7 +1441,7 @@ def fazer_backup(filepath, tipo):
     except Exception as e:
         print(f"Erro ao fazer backup: {e}")
 
-def guardar_em_excel(usuario, compra_num, sys_info, testes, danos, ram_details=None):
+def guardar_em_excel(usuario, compra_num, sys_info, testes, danos):
     try:
         registo = {
             "Data": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"),
@@ -1416,8 +1451,6 @@ def guardar_em_excel(usuario, compra_num, sys_info, testes, danos, ram_details=N
             "Serial": sys_info.get('serial', 'N/A'),
             "CPU": sys_info.get('cpu', 'N/A'),
             "RAM": sys_info.get('ram', 'N/A'),
-            "Tipo RAM": ram_details.get('type', '') if ram_details else "",
-            "Config RAM": ram_details.get('config', '') if ram_details else "",
             "Disco": sys_info.get('disk', 'N/A'),
             "GPU": sys_info.get('gpu', 'N/A'),
             "Resolução": sys_info.get('resolution', 'N/A'),
@@ -1444,7 +1477,7 @@ def guardar_em_excel(usuario, compra_num, sys_info, testes, danos, ram_details=N
              
         # Forçar ordem das colunas
         cols_order = [
-            "Data", "Técnico", "Nº Compra", "Modelo", "Serial", "CPU", "RAM", "Tipo RAM", "Config RAM", 
+            "Data", "Técnico", "Nº Compra", "Modelo", "Serial", "CPU", "RAM",
             "Disco", "GPU", "Resolução", "Refresh",
             "Teclado", "Ecrã", "Touch Screen", "Wifi", "LAN", "Webcam", "Microfone", "Colunas", "USB", 
             "Portas de Vídeo", "LTE", "Notas"
@@ -1511,7 +1544,7 @@ def formatar_excel(filepath):
                 cell.border = thin_border
                 
                 # Alinhar colunas de testes (marcas ✓ e ✗)
-                if col_idx > 13:  # Colunas dos testes (ajustado para novas colunas e refresh/res)
+                if col_idx > 11:  # Colunas dos testes (ajustado para novas colunas e refresh/res)
                     cell.alignment = center_alignment
                     cell.font = Font(size=12, bold=True)
                     
@@ -1528,31 +1561,29 @@ def formatar_excel(filepath):
         
         # Ajustar largura das colunas
         column_widths = {
-            'A': 16,  # Data
-            'B': 12,  # Técnico
-            'C': 14,  # Nº Compra
-            'D': 22,  # Modelo
-            'E': 18,  # Serial
-            'F': 25,  # CPU
-            'G': 12,  # RAM
-            'H': 10,  # Tipo RAM
-            'I': 15,  # Config RAM
-            'J': 20,  # Disco
-            'K': 20,  # GPU
-            'L': 12,  # Resolução
-            'M': 10,  # Refresh
-            'N': 10,  # Teclado
-            'O': 8,   # Ecrã
-            'P': 12,  # Touch
-            'Q': 8,   # Wifi
-            'R': 8,   # LAN
-            'S': 10,  # Webcam
-            'T': 12,  # Microfone
-            'U': 10,  # Colunas
-            'V': 8,   # USB
-            'W': 14,  # Portas de Vídeo
-            'X': 8,   # LTE
-            'Y': 30   # Notas
+            'A': 15,  # Data
+            'B': 10,  # Técnico
+            'C': 10,  # Nº Compra
+            'D': 25,  # Modelo
+            'E': 15,  # Serial
+            'F': 30,  # CPU
+            'G': 35,  # RAM (Widened to fit explicit stick data)
+            'H': 15,  # Disco
+            'I': 20,  # GPU
+            'J': 15,  # Resolução
+            'K': 10,  # Refresh Rate
+            'L': 8,   # Teclado
+            'M': 8,   # Ecrã
+            'N': 8,   # Touch Screen
+            'O': 8,   # Wifi
+            'P': 8,   # LAN
+            'Q': 8,   # Webcam
+            'R': 8,   # Microfone
+            'S': 8,   # Colunas
+            'T': 8,   # USB
+            'U': 8,   # Portas de Vídeo
+            'V': 8,   # LTE
+            'W': 30   # Notas
         }
         
         for col_letter, width in column_widths.items():
@@ -1640,31 +1671,56 @@ def formatar_excel_danos(filepath):
         return False
 
 def exportar_danos_ui():
-    # Verificar se existe ficheiro antes de pedir input
-    if not os.path.exists(EXCEL_FILE):
+    # Verificar se existe pelo menos um ficheiro
+    if not os.path.exists(EXCEL_FILE) and not os.path.exists(EXCEL_FILE_TV):
         messagebox.showinfo("Aviso", "Ainda não existem registos para exportar.")
         return
 
-    # Interface simples para input (CustomTkinter tem CTkInputDialog)
+    # Interface simples para input
     dialog = ctk.CTkInputDialog(text="Digite o Nº de Compra para exportar:", title="Exportar Danos")
     compra_num = dialog.get_input()
     
     if not compra_num: return
     
-    # Reutilizando lógica de exportação (simplificada)
     try:
-        df = pd.read_excel(EXCEL_FILE)
-        df['Nº Compra'] = df['Nº Compra'].astype(str)
-        filtro = (df['Nº Compra'] == str(compra_num)) & (df['Notas'].notna()) & (df['Notas'] != "Sem observações")
-        df_export = df[filtro][['Modelo', 'Serial', 'Notas']]
+        df_final = pd.DataFrame()
         
-        if df_export.empty:
+        # 1. Procurar em PCs
+        if os.path.exists(EXCEL_FILE):
+            df_pcs = pd.read_excel(EXCEL_FILE)
+            df_pcs['Nº Compra'] = df_pcs['Nº Compra'].astype(str)
+            filtro_pcs = (df_pcs['Nº Compra'] == str(compra_num)) & (df_pcs['Notas'].notna()) & (df_pcs['Notas'] != "Sem observações")
+            df_export_pcs = df_pcs[filtro_pcs][['Modelo', 'Serial', 'Notas']]
+            if not df_export_pcs.empty:
+                df_export_pcs.insert(0, 'Equipamento', 'PC')
+                df_final = pd.concat([df_final, df_export_pcs], ignore_index=True)
+                
+        # 2. Procurar em TVs/Monitores
+        if os.path.exists(EXCEL_FILE_TV):
+            df_tvs = pd.read_excel(EXCEL_FILE_TV)
+            df_tvs['Nº Compra'] = df_tvs['Nº Compra'].astype(str)
+            filtro_tvs = (df_tvs['Nº Compra'] == str(compra_num)) & (df_tvs['Notas'].notna()) & (df_tvs['Notas'] != "Sem observações")
+            
+            # Create "Modelo" column depending on whether they used separated Marca/Modelo or combined "Marca/Modelo"
+            if 'Marca/Modelo' in df_tvs.columns:
+                df_temp = df_tvs[filtro_tvs][['Marca/Modelo', 'Serial', 'Notas']].rename(columns={'Marca/Modelo': 'Modelo'})
+            elif 'Marca' in df_tvs.columns and 'Modelo' in df_tvs.columns:
+                df_tvs['TempModelo'] = df_tvs['Marca'].astype(str) + " " + df_tvs['Modelo'].astype(str)
+                df_temp = df_tvs[filtro_tvs][['TempModelo', 'Serial', 'Notas']].rename(columns={'TempModelo': 'Modelo'})
+            else:
+                df_temp = pd.DataFrame() # Fallback if columns are broken
+                
+            if not df_temp.empty:
+                df_temp.insert(0, 'Equipamento', 'TV/Monitor')
+                df_final = pd.concat([df_final, df_temp], ignore_index=True)
+        
+        if df_final.empty:
             messagebox.showinfo("Vazio", "Nenhum registo com danos encontrado para esta compra.")
             return
 
         save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile=f"Danos_{compra_num}.xlsx")
         if save_path:
-            df_export.to_excel(save_path, index=False)
+            df_final.to_excel(save_path, index=False)
             formatar_excel_danos(save_path)
             os.startfile(save_path)
     except Exception as e:
@@ -1784,10 +1840,13 @@ def exportar_compra_pdf_ui():
         messagebox.showinfo("Aviso", "Ainda não existem registos para exportar.")
         return
 
-    dialog = ctk.CTkInputDialog(text="Digite o Nº de Compra para exportar em PDF:", title="Exportar Compra")
+    dialog = ctk.CTkInputDialog(text="Digite o Nº de Compra para exportar:", title="Exportar Compra")
     compra_num = dialog.get_input()
     
     if not compra_num: return
+    
+    export_ans = messagebox.askquestion("Formato de Exportação", "Deseja exportar o relatório final em formato PDF?\n\n(Sim = PDF | Não = Excel)", icon='question')
+    is_pdf = (export_ans == 'yes')
     
     try:
         import win32com.client
@@ -1823,14 +1882,20 @@ def exportar_compra_pdf_ui():
             messagebox.showinfo("Vazio", "Nenhum registo encontrado para esta compra.")
             return
 
-        default_pdf = f"Compra_{compra_num}.pdf"
-        save_path_pdf = filedialog.asksaveasfilename(defaultextension=".pdf", initialfile=default_pdf, filetypes=[("Documentos PDF", "*.pdf")])
-        if not save_path_pdf: return
+        if is_pdf:
+            default_name = f"Compra_{compra_num}.pdf"
+            save_path = filedialog.asksaveasfilename(defaultextension=".pdf", initialfile=default_name, filetypes=[("Documentos PDF", "*.pdf")])
+        else:
+            default_name = f"Compra_{compra_num}.xlsx"
+            save_path = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile=default_name, filetypes=[("Folha Excel", "*.xlsx")])
+            
+        if not save_path: return
         
-        temp_excel = os.path.join(DATA_DIR, f"temp_compra_{compra_num}.xlsx")
+        # If PDF, we need a temp excel to format. If Excel, we just build it exactly where they asked to save.
+        target_excel_path = os.path.join(DATA_DIR, f"temp_compra_{compra_num}.xlsx") if is_pdf else save_path
         
         # Write both dataframes to the same sheet with spacing
-        with pd.ExcelWriter(temp_excel, engine='openpyxl') as writer:
+        with pd.ExcelWriter(target_excel_path, engine='openpyxl') as writer:
             start_row = 0
             
             if not df_pcs_export.empty:
@@ -1843,41 +1908,44 @@ def exportar_compra_pdf_ui():
                 pd.DataFrame([["MONITORES / TVs"]]).to_excel(writer, index=False, header=False, startrow=start_row)
                 start_row += 1
                 
-                # Replace port '.0' decimals for cleaner PDF
+                # Replace port '.0' decimals for cleaner PDF/Excel
                 for col in ['DisplayPort', 'HDMI', 'DVI', 'VGA', 'RS232', 'USB', 'USB C']:
                     if col in df_tvs_export.columns:
                         df_tvs_export[col] = df_tvs_export[col].astype(str).str.replace(r'\.0$', '', regex=True).replace('nan', '')
                         
                 df_tvs_export.to_excel(writer, index=False, startrow=start_row)
 
-        formatar_excel_compra_pdf(temp_excel)
+        formatar_excel_compra_pdf(target_excel_path)
         
-        try:
-            excel = win32com.client.DispatchEx("Excel.Application")
-            excel.Visible = False
-            excel.DisplayAlerts = False
-            
-            wb = excel.Workbooks.Open(os.path.abspath(temp_excel))
-            
-            ws = wb.ActiveSheet
-            ws.PageSetup.Orientation = 2 # xlLandscape
-            ws.PageSetup.Zoom = False
-            ws.PageSetup.FitToPagesWide = 1
-            ws.PageSetup.FitToPagesTall = False
-            
-            wb.ExportAsFixedFormat(0, os.path.abspath(save_path_pdf))
-            wb.Close(False)
-            excel.Quit()
-            
-            if os.path.exists(temp_excel):
-                try: os.remove(temp_excel)
-                except: pass
+        if is_pdf:
+            try:
+                excel = win32com.client.DispatchEx("Excel.Application")
+                excel.Visible = False
+                excel.DisplayAlerts = False
                 
-            os.startfile(save_path_pdf)
-        except Exception as com_err:
-            messagebox.showerror("Erro PDF", f"Erro a comunicar com o Excel para gerar PDF: {str(com_err)}\n\nO ficheiro XLSX com formato foi gerado em {DATA_DIR}.")
-            os.startfile(DATA_DIR)
-            
+                wb = excel.Workbooks.Open(os.path.abspath(target_excel_path))
+                
+                ws = wb.ActiveSheet
+                ws.PageSetup.Orientation = 2 # xlLandscape
+                ws.PageSetup.Zoom = False
+                ws.PageSetup.FitToPagesWide = 1
+                ws.PageSetup.FitToPagesTall = False
+                
+                wb.ExportAsFixedFormat(0, os.path.abspath(save_path))
+                wb.Close(False)
+                excel.Quit()
+                
+                # Apagar temp file
+                if os.path.exists(target_excel_path):
+                    os.remove(target_excel_path)
+                    
+            except Exception as e:
+                messagebox.showerror("Erro PDF", f"Falha na conversão para PDF: {e}")
+                return
+                
+        os.startfile(save_path)
+        messagebox.showinfo("Sucesso", "Ficheiro exportado com sucesso!")
+        
     except Exception as e:
         import traceback
         traceback.print_exc()
