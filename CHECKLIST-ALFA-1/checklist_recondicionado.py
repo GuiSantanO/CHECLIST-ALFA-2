@@ -10,6 +10,7 @@ import datetime
 import webbrowser
 import threading
 import pandas as pd
+import shutil
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
@@ -785,11 +786,19 @@ class RegistosFrame(ctk.CTkFrame):
          for col in self.df.columns:
              self.tree.heading(col, text=col)
              width = 150 if col in ["Modelo", "Serial", "Notas", "CPU", "Disco", "GPU"] else 80
-             self.tree.column(col, width=width, minwidth=50, stretch=False)
+             self.tree.column(col, width=width, minwidth=50, stretch=False, anchor="center")
              
          # Insert rows
          for idx, row in self.filtered_df.iterrows():
-             values = ["" if pd.isna(val) else str(val) for val in row]
+             values = []
+             for col_name, val in row.items():
+                 if pd.isna(val) or str(val) == "nan":
+                     values.append("")
+                 else:
+                     val_str = str(val)
+                     if val_str.endswith('.0') and col_name in ["Nº Compra"]:
+                         val_str = val_str[:-2]
+                     values.append(val_str)
              self.tree.insert("", "end", iid=str(idx), values=values)
 
     def create_editor_fields(self):
@@ -893,6 +902,8 @@ class RegistosFrame(ctk.CTkFrame):
              self.df.to_excel(EXCEL_FILE, index=False, sheet_name="Registos")
              formatar_excel(EXCEL_FILE)
              
+             fazer_backup(EXCEL_FILE, "PC")
+             
              self.load_data()
              messagebox.showinfo("Sucesso", "Registo atualizado e guardado!")
         except Exception as e:
@@ -989,6 +1000,18 @@ class RegistosTVFrame(ctk.CTkFrame):
              return
         try:
              self.df = pd.read_excel(EXCEL_FILE_TV)
+             
+             if 'Marca' in self.df.columns and 'Modelo' in self.df.columns:
+                 self.df['Marca'] = self.df['Marca'].fillna("")
+                 self.df['Modelo'] = self.df['Modelo'].fillna("")
+                 marca = self.df['Marca'].astype(str).str.replace('nan', '', case=False)
+                 modelo = self.df['Modelo'].astype(str).str.replace('nan', '', case=False)
+                 self.df.insert(3, 'Marca/Modelo', (marca + " " + modelo).str.strip())
+                 self.df.loc[self.df['Marca/Modelo'] == "", 'Marca/Modelo'] = "Desconhecido"
+                 self.df = self.df.drop(columns=['Marca', 'Modelo'])
+                 self.df.to_excel(EXCEL_FILE_TV, index=False, sheet_name="RegistosTV")
+                 formatar_excel_tv(EXCEL_FILE_TV)
+                 
              self.apply_filters()
              self.create_editor_fields()
         except Exception as e:
@@ -1000,7 +1023,7 @@ class RegistosTVFrame(ctk.CTkFrame):
         sort_by = self.sort_var.get()
         self.filtered_df = self.df.copy()
         
-        for col in ['Marca', 'Modelo', 'Serial', 'Nº Compra']:
+        for col in ['Marca/Modelo', 'Serial', 'Nº Compra']:
              if col in self.filtered_df.columns:
                  self.filtered_df[col] = self.filtered_df[col].astype(str)
                  
@@ -1016,8 +1039,8 @@ class RegistosTVFrame(ctk.CTkFrame):
             except:
                 self.filtered_df = self.filtered_df.sort_index(ascending=False)
         elif sort_by == "Ordem Alfabética (Modelo)":
-            if 'Modelo' in self.filtered_df.columns:
-                self.filtered_df = self.filtered_df.sort_values(by='Modelo', ascending=True)
+            if 'Marca/Modelo' in self.filtered_df.columns:
+                self.filtered_df = self.filtered_df.sort_values(by='Marca/Modelo', ascending=True)
 
         self.populate_tree()
         
@@ -1030,16 +1053,16 @@ class RegistosTVFrame(ctk.CTkFrame):
          self.tree["show"] = "headings"
          for col in self.df.columns:
              self.tree.heading(col, text=col)
-             width = 150 if col in ["Marca", "Modelo", "Serial", "Notas", "Resolução"] else 80
-             self.tree.column(col, width=width, minwidth=50, stretch=False)
+             width = 150 if col in ["Marca/Modelo", "Serial", "Notas", "Resolução"] else 80
+             self.tree.column(col, width=width, minwidth=50, stretch=False, anchor="center")
          for idx, row in self.filtered_df.iterrows():
              values = []
-             for val in row:
-                 if pd.isna(val) or val == "nan":
+             for col_name, val in row.items():
+                 if pd.isna(val) or str(val) == "nan":
                      values.append("")
                  else:
                      val_str = str(val)
-                     if val_str.endswith('.0') and col in ["DisplayPort", "HDMI", "DVI", "VGA", "RS232", "USB", "USB A", "USB C"]:
+                     if val_str.endswith('.0') and col_name in ["DisplayPort", "HDMI", "DVI", "VGA", "RS232", "USB", "USB A", "USB C", "Nº Compra"]:
                          val_str = val_str[:-2]
                      values.append(val_str)
              self.tree.insert("", "end", iid=str(idx), values=values)
@@ -1130,6 +1153,8 @@ class RegistosTVFrame(ctk.CTkFrame):
              self.df.to_excel(EXCEL_FILE_TV, index=False, sheet_name="RegistosTV")
              formatar_excel_tv(EXCEL_FILE_TV)
              
+             fazer_backup(EXCEL_FILE_TV, "TV")
+             
              self.load_data()
              messagebox.showinfo("Sucesso", "Registo atualizado e guardado!")
         except Exception as e:
@@ -1186,9 +1211,36 @@ def get_system_info():
         
         # 4. RAM
         try:
-            ram_bytes = psutil.virtual_memory().total
-            info['ram'] = f"{round(ram_bytes / (1024**3))} GB"
-        except: info['ram'] = "N/A"
+            total_ram = 0
+            stick_speeds = []
+            has_soldered = False
+            for mem_stick in c.Win32_PhysicalMemory():
+                total_ram += int(mem_stick.Capacity)
+                if mem_stick.Speed:
+                    stick_speeds.append(f"{mem_stick.Speed} MT/s")
+                
+                # Check FormFactor for soldered RAM types
+                # 12 commonly SODIMM (sometimes soldered in modern ultra-thins but not guaranteed)
+                # 21, 22, 23, 24 represent specifically soldered form factors: BGA, FB-DIMM, etc.
+                if mem_stick.FormFactor in [21, 22, 23, 24]:
+                    has_soldered = True
+                    
+            ram_gb = round(total_ram / (1024**3))
+            
+            ram_str = f"{ram_gb} GB"
+            if stick_speeds:
+                ram_str += f" ({len(stick_speeds)}x - {', '.join(set(stick_speeds))})"
+            if has_soldered:
+                ram_str += " [Soldada]"
+                
+            info['ram'] = ram_str
+                
+        except: 
+            try:
+                ram_bytes = psutil.virtual_memory().total
+                info['ram'] = f"{round(ram_bytes / (1024**3))} GB"
+            except:
+                info['ram'] = "N/A"
         
         # 5. Disco
         disks = []
@@ -1321,6 +1373,28 @@ def gerar_relatorio_logic(sys_info, usuario, compra_num, testes, danos, ram_deta
     except Exception as e:
         messagebox.showerror("Erro", f"Falha ao gravar: {e}")
 
+def fazer_backup(filepath, tipo):
+    if not os.path.exists(filepath):
+        return
+    backup_dir = os.path.join(DATA_DIR, "backups", tipo)
+    if not os.path.exists(backup_dir):
+        try:
+            os.makedirs(backup_dir)
+        except Exception as e:
+            print(f"Erro ao criar diretório de backup: {e}")
+            return
+            
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = os.path.basename(filepath)
+    name, ext = os.path.splitext(filename)
+    backup_filename = f"{name}_{timestamp}{ext}"
+    backup_path = os.path.join(backup_dir, backup_filename)
+    
+    try:
+        shutil.copy2(filepath, backup_path)
+    except Exception as e:
+        print(f"Erro ao fazer backup: {e}")
+
 def guardar_em_excel(usuario, compra_num, sys_info, testes, danos, ram_details=None):
     try:
         registo = {
@@ -1375,6 +1449,8 @@ def guardar_em_excel(usuario, compra_num, sys_info, testes, danos, ram_details=N
              
         df.to_excel(EXCEL_FILE, index=False, sheet_name="Registos")
         formatar_excel(EXCEL_FILE)
+        
+        fazer_backup(EXCEL_FILE, "PC")
         return True
     except Exception as e:
         print(e)
@@ -1719,21 +1795,18 @@ def exportar_compra_pdf_ui():
             df_tvs = pd.read_excel(EXCEL_FILE_TV)
             df_tvs['Nº Compra'] = df_tvs['Nº Compra'].astype(str)
             filtro_tvs = df_tvs['Nº Compra'] == str(compra_num)
-            # Create a combined Brand/Model column for TVs
             if not df_tvs.empty:
-                # Tratar valores nulos de forma segura antes da conversão para string
-                df_tvs['Marca'] = df_tvs['Marca'].fillna("")
-                df_tvs['Modelo'] = df_tvs['Modelo'].fillna("")
+                if 'Marca' in df_tvs.columns and 'Modelo' in df_tvs.columns:
+                    df_tvs['Marca'] = df_tvs['Marca'].fillna("")
+                    df_tvs['Modelo'] = df_tvs['Modelo'].fillna("")
+                    marca = df_tvs['Marca'].astype(str).str.replace('nan', '', case=False)
+                    modelo = df_tvs['Modelo'].astype(str).str.replace('nan', '', case=False)
+                    df_tvs['Marca/Modelo'] = (marca + " " + modelo).str.strip()
+                    df_tvs.loc[df_tvs['Marca/Modelo'] == "", 'Marca/Modelo'] = "Desconhecido"
                 
-                marca = df_tvs['Marca'].astype(str).str.replace('nan', '', case=False)
-                modelo = df_tvs['Modelo'].astype(str).str.replace('nan', '', case=False)
-                
-                df_tvs['Modelo Completo'] = (marca + " " + modelo).str.strip()
-                df_tvs.loc[df_tvs['Modelo Completo'] == "", 'Modelo Completo'] = "Desconhecido"
-                
-                colunas_tvs = ['Modelo Completo', 'Serial', 'Resolução', 'Refresh', 'DisplayPort', 'HDMI', 'DVI', 'VGA', 'RS232', 'USB', 'USB C', 'Notas']
+                colunas_tvs = ['Marca/Modelo', 'Serial', 'Resolução', 'Refresh', 'DisplayPort', 'HDMI', 'DVI', 'VGA', 'RS232', 'USB', 'USB C', 'Notas']
                 df_tvs_export = df_tvs[filtro_tvs].reindex(columns=colunas_tvs)
-                df_tvs_export.rename(columns={'Modelo Completo': 'Marca/Modelo', 'Notas': 'Observações'}, inplace=True)
+                df_tvs_export.rename(columns={'Notas': 'Observações'}, inplace=True)
         
         if df_pcs_export.empty and df_tvs_export.empty:
             messagebox.showinfo("Vazio", "Nenhum registo encontrado para esta compra.")
@@ -1811,18 +1884,36 @@ def get_tv_info():
     }
     try:
         c = wmi.WMI()
-        # Resolução e Refresh Rate da TV (Monitor externo ou principal)
+        import win32api
         res_width = ""
         res_height = ""
         refresh = ""
-        for gpu in c.Win32_VideoController():
-            if gpu.CurrentHorizontalResolution and gpu.CurrentVerticalResolution:
-                 res_width = gpu.CurrentHorizontalResolution
-                 res_height = gpu.CurrentVerticalResolution
-                 refresh = gpu.CurrentRefreshRate or "60"
-                 # Break on first found
-                 break
-                 
+        
+        try:
+            monitors = win32api.EnumDisplayMonitors()
+            target_device = None
+            if len(monitors) > 1:
+                for m in monitors:
+                    info = win32api.GetMonitorInfo(m[0])
+                    if info.get('Flags') != 1:
+                        target_device = info.get('Device')
+                        break
+            if not target_device and monitors:
+                target_device = win32api.GetMonitorInfo(monitors[0][0]).get('Device')
+            if target_device:
+                settings = win32api.EnumDisplaySettings(target_device, -1)
+                res_width = settings.PelsWidth
+                res_height = settings.PelsHeight
+                refresh = settings.DisplayFrequency
+        except Exception as e:
+            print("win32api err:", e)
+            for gpu in c.Win32_VideoController():
+                if gpu.CurrentHorizontalResolution and gpu.CurrentVerticalResolution:
+                     res_width = gpu.CurrentHorizontalResolution
+                     res_height = gpu.CurrentVerticalResolution
+                     refresh = gpu.CurrentRefreshRate or "60"
+                     break
+                     
         if res_width and res_height:
             info['resolution'] = f"{res_width}x{res_height}"
             
@@ -1967,8 +2058,7 @@ def guardar_em_excel_tv(usuario, compra_num, sys_info, portas, testes, danos):
             "Data": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"),
             "Técnico": usuario,
             "Nº Compra": compra_num,
-            "Marca": sys_info.get('marca', 'N/A'),
-            "Modelo": sys_info.get('modelo', 'N/A'),
+            "Marca/Modelo": (sys_info.get('marca', '') + " " + sys_info.get('modelo', '')).strip() or "Desconhecido",
             "Serial": sys_info.get('serial', 'N/A'),
             "Resolução": sys_info.get('resolution', 'N/A'),
             "Refresh": sys_info.get('refresh_rate', 'N/A'),
@@ -1997,7 +2087,7 @@ def guardar_em_excel_tv(usuario, compra_num, sys_info, portas, testes, danos):
              df = pd.DataFrame([registo])
              
         cols_order = [
-            "Data", "Técnico", "Nº Compra", "Marca", "Modelo", "Serial", "Resolução", "Refresh",
+            "Data", "Técnico", "Nº Compra", "Marca/Modelo", "Serial", "Resolução", "Refresh",
             "DisplayPort", "HDMI", "DVI", "VGA", "RS232", "USB", "USB A", "USB C",
             "Ecrã / Imagem", "Touch Screen", "Colunas", "Cabos / Energia", "Botões", "Comando (Remote)", "Webcam", "Notas"
         ]
@@ -2010,6 +2100,8 @@ def guardar_em_excel_tv(usuario, compra_num, sys_info, portas, testes, danos):
              
         df.to_excel(EXCEL_FILE_TV, index=False, sheet_name="RegistosTV")
         formatar_excel_tv(EXCEL_FILE_TV)
+        
+        fazer_backup(EXCEL_FILE_TV, "TV")
         return True
     except Exception as e:
         print("Erro Excel TV:", e)
@@ -2050,9 +2142,9 @@ def formatar_excel_tv(filepath):
                 cell.border = thin_border
                 
                 # Alinhar colunas numéricas de pt/testes
-                # 9 ao 16 são portas (DisplayPort até USB C)
-                # 17 ao 23 são testes (Ecrã / Imagem até Webcam)
-                if col_idx >= 9 and col_idx <= 23: 
+                # 8 ao 15 são portas (DisplayPort até USB C)
+                # 16 ao 22 são testes (Ecrã / Imagem até Webcam)
+                if col_idx >= 8 and col_idx <= 22: 
                     cell.alignment = center_alignment
                     cell.font = Font(size=12, bold=True)
                     if cell.value == "✓": cell.font = Font(size=12, bold=True, color="00B050")
@@ -2064,9 +2156,9 @@ def formatar_excel_tv(filepath):
                 ws.row_dimensions[row_idx].height = 20
         
         column_widths = {
-            'A': 16, 'B': 12, 'C': 14, 'D': 15, 'E': 20, 'F': 18, 'G': 12, 'H': 10,
-            'I': 10, 'J': 8,  'K': 8,  'L': 8,  'M': 8,  'N': 8,  'O': 8,  'P': 8,
-            'Q': 14, 'R': 14, 'S': 8,  'T': 14, 'U': 8,  'V': 16, 'W': 10, 'X': 30
+            'A': 16, 'B': 12, 'C': 14, 'D': 30, 'E': 18, 'F': 12, 'G': 10,
+            'H': 10, 'I': 8,  'J': 8,  'K': 8,  'L': 8,  'M': 8,  'N': 8,  'O': 8,
+            'P': 14, 'Q': 14, 'R': 8,  'S': 14, 'T': 8,  'U': 16, 'V': 10, 'W': 30
         }
         for col_letter, width in column_widths.items():
             ws.column_dimensions[col_letter].width = width
