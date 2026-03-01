@@ -11,6 +11,7 @@ import webbrowser
 import threading
 import pandas as pd
 import shutil
+import win32api
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
@@ -57,6 +58,14 @@ class App(ctk.CTk):
         
         # Cache de Info do Sistema
         self.sys_info = {}
+        
+        # Obter Refresh Rate do Monitor Dinamicamente
+        try:
+            hz = win32api.EnumDisplaySettings(None, -1).DisplayFrequency
+            # Para monitores ultrarrápidos, definir delay (ex: 240Hz = 4ms, 60Hz = 16ms)
+            self.anim_delay = max(int(1000 / hz), 1)
+        except:
+            self.anim_delay = 10 # Default seguro se falhar
         
         # Container Principal (para gestão de 'páginas')
         self.container = ctk.CTkFrame(self, fg_color="transparent")
@@ -126,13 +135,15 @@ class App(ctk.CTk):
         self.animate_transition(old_frame, new_frame, current_x=0.0, target_x=end_x, new_start_x=start_x)
 
     def animate_transition(self, old_frame, new_frame, current_x, target_x, new_start_x):
-        """Atualiza iterativamente as coordenadas X com atenuação (Ease-Out) para um deslize suave"""
-        # Calcular distância restante para atenuar a velocidade
+        """Atualiza iterativamente as coordenadas X. Sincroniza a matemática com os Hz do ecrã."""
         distance = abs(target_x - current_x)
         
-        # O passo (step) diminui conforme a janela se aproxima do destino final, 
-        # com um mínimo de 0.015 para garantir que a animação não para.
-        step = max(distance * 0.15, 0.015)
+        # O rácio garante que a janela não desliza mais rápida/lenta consoante os Hz do monitor, 
+        # mas gera +frames (mais suave) onde a taxa de atualização física suportar (ex: 144Hz, 240Hz)
+        time_ratio = self.anim_delay / 15.0 
+        
+        # Calcular Desaceleração suave de deslize
+        step = max(distance * 0.40 * time_ratio, 0.08 * time_ratio)
         
         # Calcula direção do movimento
         moving_left = target_x < 0
@@ -144,7 +155,7 @@ class App(ctk.CTk):
             next_x = current_x + step
             new_x = new_start_x + step
             
-        # Verifica se a animação terminou
+        # Verifica terminação
         finished = (moving_left and next_x <= target_x) or (not moving_left and next_x >= target_x)
         
         if finished:
@@ -156,8 +167,9 @@ class App(ctk.CTk):
             new_frame.place(relx=new_x, rely=0)
             new_start_x = new_x
             current_x = next_x
-            # Agenda o próximo frame da animação (15ms ~ 60fps constantes)
-            self.after(15, self.animate_transition, old_frame, new_frame, current_x, target_x, new_start_x)
+            
+            # Executa baseando-se no refresh perfeito (ex: ~4ms delay para 240fps)
+            self.after(self.anim_delay, self.animate_transition, old_frame, new_frame, current_x, target_x, new_start_x)
 
 # --- TELAS ---
 
