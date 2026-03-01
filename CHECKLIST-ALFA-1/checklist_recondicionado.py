@@ -1212,12 +1212,14 @@ def get_system_info():
         # 4. RAM
         try:
             total_ram = 0
-            stick_speeds = []
+            stick_specs = []
             has_soldered = False
             for mem_stick in c.Win32_PhysicalMemory():
+                cap_gb = round(int(mem_stick.Capacity) / (1024**3))
                 total_ram += int(mem_stick.Capacity)
-                if mem_stick.Speed:
-                    stick_speeds.append(f"{mem_stick.Speed} MT/s")
+                
+                speed_str = f"{mem_stick.Speed} MT/s" if mem_stick.Speed else ""
+                stick_specs.append(f"{cap_gb}GB {speed_str}".strip())
                 
                 # Check FormFactor for soldered RAM types
                 # 12 commonly SODIMM (sometimes soldered in modern ultra-thins but not guaranteed)
@@ -1237,8 +1239,8 @@ def get_system_info():
             ram_gb = round(total_ram / (1024**3))
             
             ram_str = f"{ram_gb} GB"
-            if stick_speeds:
-                ram_str += f" ({len(stick_speeds)}x - {', '.join(set(stick_speeds))})"
+            if stick_specs:
+                ram_str += f" ({' + '.join(stick_specs)})"
             if has_soldered:
                 ram_str += " [Soldada]"
                 
